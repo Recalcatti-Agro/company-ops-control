@@ -16,3 +16,6 @@ backend/data/
 *.dump
 *.sql
 *.xlsx
+
+.claude/
+CLAUDE.md
