@@ -56,10 +56,15 @@ Aplicación web para administrar operaciones de una empresa con marca parametriz
 - `frontend/`
 - `frontend/app/` -> pantallas
 - `frontend/lib/api.ts` -> cliente API + sesión local
+- `docker-compose.yml` -> stack local/desarrollo
+- `docker-compose.prod.yml` -> stack de producción para Lightsail
+- `Caddyfile` -> reverse proxy y TLS automático
+- `scripts/backup_db_prod.sh` -> backup lógico simple de PostgreSQL en producción
 - `docs/BASE_DE_DATOS.md` -> esquema de base de datos (tablas, relaciones y reglas)
 - `docs/FLUJO_CAJA_Y_TRABAJOS.md` -> flujo operativo detallado
 - `docs/ARQUITECTURA_AWS.md` -> arquitectura target en AWS + Cognito
 - `docs/DESPLIEGUE_AWS_DESDE_CERO.md` -> guía paso a paso para desplegar desde cero en AWS
+- `docs/DESPLIEGUE_AWS_LIGHTSAIL.md` -> guía operativa recomendada para deploy simple en Lightsail
 
 ## Endpoints API principales
 
@@ -128,12 +133,16 @@ Backend (`docker-compose.yml`):
 - `DJANGO_SECRET_KEY`
 - `DJANGO_DEBUG`
 - `DJANGO_ALLOWED_HOSTS`
+- `CSRF_TRUSTED_ORIGINS`
 - `CORS_ALLOWED_ORIGINS`
 - `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`
 
 Frontend:
 - `NEXT_PUBLIC_API_URL`
 - `NEXT_PUBLIC_COMPANY_NAME`
+
+Producción (`docker-compose.prod.yml` / `Caddyfile`):
+- `APP_DOMAIN`
 
 ## Seguridad y producción
 
@@ -147,6 +156,7 @@ Objetivo recomendado en AWS:
 
 Ver detalle en `docs/ARQUITECTURA_AWS.md`.
 Deploy operativo desde cero: `docs/DESPLIEGUE_AWS_DESDE_CERO.md`.
+Deploy recomendado hoy para esta carga: `docs/DESPLIEGUE_AWS_LIGHTSAIL.md`.
 
 ## GitHub público (higiene mínima)
 
