@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16
+    container_name: business-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PUBLIC_PORT:-5432}:5432"
+
+  web:
+    build:
+      context: ./backend
+    container_name: business-web
+    environment:
+      COMPANY_NAME: ${COMPANY_NAME}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: "${DJANGO_DEBUG:-1}"
+      DJANGO_ALLOWED_HOSTS: "${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}"
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:3000}"
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: "${DB_PORT:-5432}"
+    volumes:
+      - ./backend:/app
+    ports:
+      - "${WEB_PUBLIC_PORT:-8000}:8000"
+    depends_on:
+      - db
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: business-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:8000/api}"
+      NEXT_PUBLIC_COMPANY_NAME: "${NEXT_PUBLIC_COMPANY_NAME:-Control Empresarial}"
+    ports:
+      - "${FRONTEND_PUBLIC_PORT:-3000}:3000"
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:

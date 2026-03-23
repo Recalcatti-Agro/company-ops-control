@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <div class="actions" style="justify-content:space-between;align-items:center;">
+    <h1 style="margin:0;">{{ view.model._meta.verbose_name_plural|title }}</h1>
+    <a class="btn" href="{% url entity|add:'_create' %}">Nuevo</a>
+  </div>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Registro</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for obj in object_list %}
+      <tr>
+        <td>{{ obj.pk }}</td>
+        <td>{{ obj }}</td>
+        <td>
+          <div class="actions">
+            <a class="btn btn-secondary" href="{% url entity|add:'_update' obj.pk %}">Editar</a>
+            <a class="btn btn-danger" href="{% url entity|add:'_delete' obj.pk %}">Eliminar</a>
+          </div>
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="3">Sin registros.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

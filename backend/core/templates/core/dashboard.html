@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="grid">
+  <section class="card">
+    <h2>Cap Table (USD)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Inversor</th>
+          <th>Gastos</th>
+          <th>Inversiones</th>
+          <th>Reinversiones</th>
+          <th>Capital total</th>
+          <th>% Empresa</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in cap_table %}
+        <tr>
+          <td>{{ row.investor }}</td>
+          <td>{{ row.expenses_usd }}</td>
+          <td>{{ row.investments_usd }}</td>
+          <td>{{ row.reinvestments_usd }}</td>
+          <td>{{ row.capital_usd }}</td>
+          <td>{{ row.percentage|floatformat:2 }}%</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6">Sin datos todavía.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p><strong>Total capital:</strong> USD {{ total_capital }}</p>
+  </section>
+
+  <section class="card">
+    <h2>Gastos/Inversiones por mes (USD)</h2>
+    <table>
+      <thead><tr><th>Mes</th><th>Gastos</th><th>Inversiones</th></tr></thead>
+      <tbody>
+      {% for item in monthly_data %}
+        <tr>
+          <td>{{ item.month }}</td>
+          <td>{{ item.expenses }}</td>
+          <td>{{ item.investments }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="3">Sin movimientos.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>Compromisos futuros por mes (USD estimados)</h2>
+    <table>
+      <thead><tr><th>Mes</th><th>Total</th></tr></thead>
+      <tbody>
+      {% for item in commitments_by_month %}
+        <tr>
+          <td>{{ item.month|date:"Y-m" }}</td>
+          <td>{{ item.total }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="2">Sin compromisos pendientes.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>Estado por trabajo (USD)</h2>
+    <table>
+      <thead><tr><th>Estado</th><th>Total USD</th></tr></thead>
+      <tbody>
+      {% for item in work_status %}
+        <tr>
+          <td>{{ item.status }}</td>
+          <td>{{ item.total }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="2">Sin trabajos.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>Reinversión por inversor (USD)</h2>
+    <table>
+      <thead><tr><th>Inversor</th><th>Total reinvertido</th></tr></thead>
+      <tbody>
+      {% for item in reinvestment_by_investor %}
+        <tr>
+          <td>{{ item.investor__name }}</td>
+          <td>{{ item.total }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="2">Sin reinversiones.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card" style="max-width:760px;">
+  <h1>{{ view.model._meta.verbose_name|title }}</h1>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <div class="actions">
+      <button class="btn" type="submit">Guardar</button>
+      <a class="btn btn-secondary" href="{% url entity|add:'_list' %}">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

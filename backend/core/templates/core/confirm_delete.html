@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card" style="max-width:560px;">
+  <h1>Eliminar {{ view.model._meta.verbose_name }}</h1>
+  <p>¿Seguro que querés eliminar: <strong>{{ object }}</strong>?</p>
+  <form method="post">
+    {% csrf_token %}
+    <div class="actions">
+      <button class="btn btn-danger" type="submit">Eliminar</button>
+      <a class="btn btn-secondary" href="{% url entity|add:'_list' %}">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

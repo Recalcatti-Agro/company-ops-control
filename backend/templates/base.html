@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ company_name }}</title>
+  <style>
+    :root { --bg: #f4f6f8; --card: #fff; --txt: #222; --primary: #0f5c7a; --border: #d8dee4; }
+    body { font-family: "Segoe UI", Tahoma, sans-serif; margin: 0; background: var(--bg); color: var(--txt); }
+    nav { background: #0d3b4f; color: #fff; padding: 12px 20px; display: flex; gap: 12px; flex-wrap: wrap; }
+    nav a { color: #fff; text-decoration: none; font-size: 14px; }
+    .container { padding: 20px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid var(--border); padding: 8px; text-align: left; font-size: 14px; }
+    .btn { display: inline-block; background: var(--primary); color: #fff; padding: 8px 12px; border-radius: 6px; text-decoration: none; border: 0; cursor: pointer; }
+    .btn-danger { background: #b43232; }
+    .btn-secondary { background: #6b7280; }
+    .actions { display: flex; gap: 8px; }
+    form p { display: flex; flex-direction: column; margin-bottom: 12px; }
+    input, select, textarea { padding: 8px; border: 1px solid var(--border); border-radius: 6px; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  </style>
+</head>
+<body>
+  {% if user.is_authenticated %}
+  <nav>
+    <a href="{% url 'dashboard' %}">Dashboard</a>
+    <a href="{% url 'investor_list' %}">Inversores</a>
+    <a href="{% url 'investment_list' %}">Inversiones</a>
+    <a href="{% url 'expense_list' %}">Gastos</a>
+    <a href="{% url 'commitment_list' %}">Compromisos</a>
+    <a href="{% url 'work_list' %}">Trabajos</a>
+    <a href="{% url 'work_participation_list' %}">Participaciones</a>
+    <a href="{% url 'reinvestment_list' %}">Reinversiones</a>
+    <a href="{% url 'conversion_list' %}">Conversiones ARS/USD</a>
+    <a href="/admin/">Admin</a>
+    <a href="{% url 'logout' %}">Salir</a>
+  </nav>
+  {% endif %}
+
+  <main class="container">
+    {% if messages %}
+      {% for message in messages %}
+        <div class="card">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
