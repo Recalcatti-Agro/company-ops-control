@@ -87,7 +87,7 @@ export default function QuickExpensePage() {
 
     const payload = {
       date,
-      concept: concept.trim() || "Gasto",
+      concept: concept.trim(),
       amount,
       currency: "ARS",
       paid_by: paidBy,
@@ -138,6 +138,18 @@ export default function QuickExpensePage() {
           <label htmlFor="quick-expense-date">Fecha</label>
         </div>
 
+        <div className="ifta-field">
+          <input
+            id="quick-expense-concept"
+            name="concept"
+            placeholder=" "
+            value={concept}
+            onChange={(e) => setConcept(e.target.value)}
+            required
+          />
+          <label htmlFor="quick-expense-concept">Concepto</label>
+        </div>
+
         <div className="qe-amount-wrap">
           <span className="qe-prefix">ARS $</span>
           <input
@@ -161,7 +173,33 @@ export default function QuickExpensePage() {
           </p>
         )}
 
-        <button className="btn" type="submit" disabled={saving || (paidBy === "INVESTOR" && !payerInvestor)}>
+        {!sessionInvestorId ? (
+          <div className="ifta-field filled">
+            <select
+              id="quick-expense-investor"
+              name="payer_investor"
+              value={payerInvestor}
+              onChange={(e) => setPayerInvestor(e.target.value ? Number(e.target.value) : "")}
+              required
+            >
+              <option value="">Seleccionar inversor</option>
+              {investors.map((inv) => (
+                <option key={inv.id} value={inv.id}>
+                  {inv.name}
+                </option>
+              ))}
+            </select>
+            <label htmlFor="quick-expense-investor">Inversor</label>
+          </div>
+        ) : null}
+
+        <button className="btn" type="submit" disabled={
+          saving ||
+          !concept.trim() ||
+          !amountNumber ||
+          amountNumber <= 0 ||
+          (paidBy === "INVESTOR" && !payerInvestor)
+        }>
           {saving ? "Guardando..." : "Agregar"}
         </button>
 
@@ -176,17 +214,6 @@ export default function QuickExpensePage() {
 
         {showExtra ? (
           <>
-            <div className="ifta-field">
-              <input
-                id="quick-expense-concept"
-                name="concept"
-                placeholder=" "
-                value={concept}
-                onChange={(e) => setConcept(e.target.value)}
-              />
-              <label htmlFor="quick-expense-concept">Concepto</label>
-            </div>
-
             <div className="ifta-field filled">
               <select
                 id="quick-expense-paid-by"
@@ -200,14 +227,13 @@ export default function QuickExpensePage() {
               <label htmlFor="quick-expense-paid-by">Origen</label>
             </div>
 
-            {paidBy === "INVESTOR" ? (
+            {paidBy === "INVESTOR" && sessionInvestorId ? (
               <div className="ifta-field filled">
                 <select
-                  id="quick-expense-investor"
+                  id="quick-expense-investor-extra"
                   name="payer_investor"
                   value={payerInvestor}
                   onChange={(e) => setPayerInvestor(e.target.value ? Number(e.target.value) : "")}
-                  required
                 >
                   <option value="">Seleccionar inversor</option>
                   {investors.map((inv) => (
@@ -216,7 +242,7 @@ export default function QuickExpensePage() {
                     </option>
                   ))}
                 </select>
-                <label htmlFor="quick-expense-investor">Inversor</label>
+                <label htmlFor="quick-expense-investor-extra">Inversor</label>
               </div>
             ) : null}
           </>

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { apiFetch, getToken } from "@/lib/api";
@@ -297,9 +298,12 @@ export default function ExpensesPage() {
       {error ? <p style={{ color: "#b42318", margin: "0 0 10px" }}>{error}</p> : null}
 
       <div className="row" style={{ marginBottom: 12 }}>
-        <button className="btn btn-secondary" type="button" onClick={() => setShowForm((prev) => !prev)}>
+        <button className="btn btn-secondary hide-on-mobile" type="button" onClick={() => setShowForm((prev) => !prev)}>
           {showForm ? "Ocultar formulario" : "Nuevo gasto"}
         </button>
+        <Link href="/expenses/quick" className="btn btn-secondary show-on-mobile">
+          Nuevo gasto
+        </Link>
       </div>
 
       {showForm ? (
@@ -414,117 +418,135 @@ export default function ExpensesPage() {
               </div>
             </button>
             {expandedMonths[group.monthKey] ? (
-              <div className="table-wrap">
-                <table className="mobile-stack-table">
-                  <thead>
-                    <tr>
-                      <th onClick={() => onSort("date")} style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>
-                        Fecha {sortMark("date")}
-                      </th>
-                      <th onClick={() => onSort("concept")} style={{ cursor: "pointer", userSelect: "none" }}>
-                        Concepto {sortMark("concept")}
-                      </th>
-              <th>Obligación</th>
-                      <th>Quién pagó</th>
-                      <th>ARS</th>
-                      <th onClick={() => onSort("amount_usd")} style={{ cursor: "pointer", userSelect: "none" }}>
-                        USD {sortMark("amount_usd")}
-                      </th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.rows.map((row) => (
-                      <tr
+              <>
+                {/* Desktop */}
+                <div className="expense-table-desktop">
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th onClick={() => onSort("date")} style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>
+                            Fecha {sortMark("date")}
+                          </th>
+                          <th onClick={() => onSort("concept")} style={{ cursor: "pointer", userSelect: "none" }}>
+                            Concepto {sortMark("concept")}
+                          </th>
+                          <th>Obligación</th>
+                          <th>Quién pagó</th>
+                          <th>ARS</th>
+                          <th onClick={() => onSort("amount_usd")} style={{ cursor: "pointer", userSelect: "none" }}>
+                            USD {sortMark("amount_usd")}
+                          </th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.rows.map((row) => (
+                          <tr
+                            key={row.id}
+                            className={`row-clickable ${activeRowId === row.id ? "row-active" : ""}`}
+                            onClick={() => setActiveRowId((prev) => (prev === row.id ? null : row.id))}
+                          >
+                            <td style={{ whiteSpace: "nowrap" }}>{row.date}</td>
+                            <td>
+                              <div className="concept-cell">
+                                <span className="concept-main">{row.concept}</span>
+                                {row.purchase ? <div className="concept-subline">{`Compra: ${purchaseById[row.purchase] || row.purchase}`}</div> : null}
+                                {row.job ? <div className="concept-subline">{`Trabajo: ${jobById[row.job] || row.job}`}</div> : null}
+                              </div>
+                            </td>
+                            <td>
+                              {row.payment_obligation
+                                ? obligationById[row.payment_obligation]?.source === "PURCHASE_INSTALLMENT"
+                                  ? `Cuota ${obligationById[row.payment_obligation]?.installment_number}/${obligationById[row.payment_obligation]?.installment_total}`
+                                  : obligationById[row.payment_obligation]?.concept || `#${row.payment_obligation}`
+                                : "-"}
+                            </td>
+                            <td>
+                              <span className={`chip-label chip-person ${row.paid_by === "CASH" ? "chip-person-cash" : investorChipClass(row.payer_investor)}`}>
+                                {row.paid_by === "CASH" ? "Caja" : investorById[row.payer_investor || 0] || row.payer_investor}
+                              </span>
+                            </td>
+                            <td>{`$${formatNumber(row.currency === "ARS" ? Number(row.amount) : Number(row.amount) * Number(row.fx_ars_usd || 0))}`}</td>
+                            <td>{`U$S ${formatNumber(Number(row.amount_usd))}`}</td>
+                            <td>
+                              <div className="row" style={{ justifyContent: "flex-end", alignItems: "center" }}>
+                                <button
+                                  className="row-more-btn"
+                                  onClick={(e) => { e.stopPropagation(); setActiveRowId((prev) => (prev === row.id ? null : row.id)); }}
+                                  aria-label="Mostrar acciones"
+                                >⋯</button>
+                                <div className={`row-actions ${activeRowId === row.id ? "is-open" : ""}`}>
+                                  <button className="action-btn" onClick={(e) => { e.stopPropagation(); onEdit(row); }}>
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16v4z" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M13 6l4 4" fill="none" stroke="currentColor" strokeWidth="1.8"/></svg>
+                                    <span>Editar</span>
+                                  </button>
+                                  <button className="action-btn action-btn-delete" onClick={(e) => { e.stopPropagation(); onDelete(row.id); }}>
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M9 7V5h6v2" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M8 7l1 12h6l1-12" fill="none" stroke="currentColor" strokeWidth="1.8"/></svg>
+                                    <span>Eliminar</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Mobile */}
+                <div className="expense-cards">
+                  {group.rows.map((row) => {
+                    const ars = row.currency === "ARS" ? Number(row.amount) : Number(row.amount) * Number(row.fx_ars_usd || 0);
+                    const payerName = row.paid_by === "CASH" ? "Caja" : (investorById[row.payer_investor || 0] || "Inversor");
+                    const chipClass = row.paid_by === "CASH" ? "chip-person-cash" : investorChipClass(row.payer_investor);
+                    const isActive = activeRowId === row.id;
+                    return (
+                      <div
                         key={row.id}
-                        className={`row-clickable ${activeRowId === row.id ? "row-active" : ""}`}
+                        className={`expense-card${isActive ? " expense-card-open" : ""}`}
                         onClick={() => setActiveRowId((prev) => (prev === row.id ? null : row.id))}
                       >
-                        <td data-label="Fecha" style={{ whiteSpace: "nowrap" }}>{row.date}</td>
-                        <td data-label="Concepto">
-                          <div className="concept-cell">
-                            <span className="concept-main">{row.concept}</span>
-                            {row.purchase ? (
-                              <div className="concept-subline">{`Compra: ${purchaseById[row.purchase] || row.purchase}`}</div>
-                            ) : null}
-                            {row.job ? <div className="concept-subline">{`Trabajo: ${jobById[row.job] || row.job}`}</div> : null}
+                        <div className="expense-card-top">
+                          <span className="expense-card-concept">{row.concept}</span>
+                          <span className="expense-card-amount">${formatNumber(ars)}</span>
+                        </div>
+                        <div className="expense-card-meta">
+                          <span className={`chip-label chip-person ${chipClass}`}>{payerName}</span>
+                          <span className="small">{row.date} · U$S {formatNumber(Number(row.amount_usd))}</span>
+                        </div>
+                        {row.purchase || row.job ? (
+                          <div className="small">
+                            {row.purchase ? `Compra: ${purchaseById[row.purchase] || row.purchase}` : null}
+                            {row.job ? `Trabajo: ${jobById[row.job] || row.job}` : null}
                           </div>
-                        </td>
-                        <td data-label="Obligación">
-                          {row.payment_obligation
-                            ? obligationById[row.payment_obligation]?.source === "PURCHASE_INSTALLMENT"
-                              ? `Cuota ${obligationById[row.payment_obligation]?.installment_number}/${obligationById[row.payment_obligation]?.installment_total}`
-                              : obligationById[row.payment_obligation]?.concept || `#${row.payment_obligation}`
-                            : "-"}
-                        </td>
-                        <td data-label="Quién pagó">
-                          <span
-                            className={`chip-label chip-person ${
-                              row.paid_by === "CASH" ? "chip-person-cash" : investorChipClass(row.payer_investor)
-                            }`}
-                          >
-                            {row.paid_by === "CASH" ? "Caja" : investorById[row.payer_investor || 0] || row.payer_investor}
-                          </span>
-                        </td>
-                        <td data-label="ARS">
-                          {`$${formatNumber(
-                            row.currency === "ARS" ? Number(row.amount) : Number(row.amount) * Number(row.fx_ars_usd || 0),
-                          )}`}
-                        </td>
-                        <td data-label="USD">{`U$S ${formatNumber(Number(row.amount_usd))}`}</td>
-                        <td data-label="Acciones">
-                          <div className="row" style={{ justifyContent: "flex-end", alignItems: "center" }}>
+                        ) : null}
+                        {isActive ? (
+                          <div className="expense-card-actions">
                             <button
-                              className="row-more-btn"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveRowId((prev) => (prev === row.id ? null : row.id));
-                              }}
-                              title="Acciones"
-                              aria-label="Mostrar acciones"
+                              className="action-btn"
+                              style={{ flex: 1, justifyContent: "center" }}
+                              onClick={(e) => { e.stopPropagation(); onEdit(row); }}
                             >
-                              ⋯
+                              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16v4z" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M13 6l4 4" fill="none" stroke="currentColor" strokeWidth="1.8"/></svg>
+                              Editar
                             </button>
-                            <div className={`row-actions ${activeRowId === row.id ? "is-open" : ""}`}>
-                              <button
-                                className="action-btn action-btn-edit"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onEdit(row);
-                                }}
-                                title="Editar"
-                                aria-label="Editar gasto"
-                              >
-                                <svg viewBox="0 0 24 24" aria-hidden="true">
-                                  <path d="M4 20h4l10-10-4-4L4 16v4z" fill="none" stroke="currentColor" strokeWidth="1.8" />
-                                  <path d="M13 6l4 4" fill="none" stroke="currentColor" strokeWidth="1.8" />
-                                </svg>
-                                <span>Editar</span>
-                              </button>
-                              <button
-                                className="action-btn action-btn-delete"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onDelete(row.id);
-                                }}
-                                title="Eliminar"
-                                aria-label="Eliminar gasto"
-                              >
-                                <svg viewBox="0 0 24 24" aria-hidden="true">
-                                  <path d="M5 7h14" fill="none" stroke="currentColor" strokeWidth="1.8" />
-                                  <path d="M9 7V5h6v2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-                                  <path d="M8 7l1 12h6l1-12" fill="none" stroke="currentColor" strokeWidth="1.8" />
-                                </svg>
-                                <span>Eliminar</span>
-                              </button>
-                            </div>
+                            <button
+                              className="action-btn action-btn-delete"
+                              style={{ flex: 1, justifyContent: "center" }}
+                              onClick={(e) => { e.stopPropagation(); onDelete(row.id); }}
+                            >
+                              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M9 7V5h6v2" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M8 7l1 12h6l1-12" fill="none" stroke="currentColor" strokeWidth="1.8"/></svg>
+                              Eliminar
+                            </button>
                           </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             ) : null}
           </section>
         ))}

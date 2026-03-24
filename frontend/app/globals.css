@@ -513,6 +513,71 @@ textarea {
   min-width: 0;
 }
 
+.hide-on-mobile { display: inline-flex; }
+.show-on-mobile { display: none; }
+
+.expense-table-desktop {
+  display: block;
+}
+
+.expense-cards {
+  display: none;
+}
+
+.expense-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.expense-card.expense-card-open {
+  background: var(--hover-bg);
+}
+
+.expense-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.expense-card-concept {
+  font-size: 15px;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.expense-card-amount {
+  font-size: 17px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.expense-card-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.expense-card-actions {
+  display: flex;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-top: 2px;
+}
+
 .qe-extra-toggle {
   border: 0;
   background: transparent;
@@ -856,5 +921,19 @@ textarea {
 
   .month-accordion-header {
     padding: 10px 12px;
+  }
+
+  .hide-on-mobile { display: none; }
+  .show-on-mobile { display: inline-flex; }
+
+  .expense-table-desktop {
+    display: none;
+  }
+
+  .expense-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
   }
 }
