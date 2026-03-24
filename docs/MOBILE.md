@@ -33,6 +33,11 @@ Un toggle discreto debajo del botón despliega:
 
 - **Origen**: Paga inversor / Sale de caja (por defecto: paga inversor)
 - **Inversor**: selector para cambiar el inversor pagador (solo si el origen es "Paga inversor" y el usuario sí tiene inversor en sesión — para cuando paga otro)
+- **Compra**: selector opcional de compra asociada
+- **Trabajo**: selector opcional de trabajo asociado
+- **Cuenta a pagar**: selector opcional de obligación de pago
+  - si hay una compra seleccionada, solo muestra obligaciones de esa compra
+  - si se selecciona una obligación vinculada a una compra, la compra se completa automáticamente
 
 ### Inversor por defecto
 
