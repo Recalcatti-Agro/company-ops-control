@@ -6,8 +6,10 @@ from rest_framework.exceptions import ValidationError as ApiValidationError
 
 from .api_views import (
     _alloc_by_weights,
+    _collection_work_reference_date,
     _build_distribution_plan,
     _investor_capital_snapshot,
+    _monthly_dashboard_data,
     add_months,
     recompute_job_status,
     sync_payment_obligation_status,
@@ -642,3 +644,40 @@ class SyncPurchaseInstallmentsTest(TestCase):
         self.assertEqual(len(obligations), 2)
         self.assertEqual(obligations[0].installment_total, 2)
         self.assertEqual(obligations[1].installment_total, 2)
+
+
+# ---------------------------------------------------------------------------
+# Dashboard monthly aggregation
+# ---------------------------------------------------------------------------
+
+class DashboardMonthlyDataTest(TestCase):
+
+    def test_collected_gain_is_grouped_by_work_date_not_collection_date(self):
+        job = make_job(on_date=date(2024, 1, 15))
+        collection = make_collection(
+            Decimal("100.00"),
+            on_date=date(2024, 3, 10),
+            collected_amount_usd=Decimal("100.00"),
+        )
+        collection.job = job
+        collection.save(update_fields=["job"])
+
+        monthly_data = _monthly_dashboard_data()
+
+        self.assertEqual(monthly_data, [{"month": "2024-01", "expenses": 0.0, "gains": 100.0}])
+
+    def test_grouped_collection_uses_latest_work_date_reference(self):
+        january_job = make_job(on_date=date(2024, 1, 15))
+        february_job = make_job(on_date=date(2024, 2, 20))
+        collection = make_collection(
+            Decimal("90.00"),
+            on_date=date(2024, 3, 5),
+            collected_amount_usd=Decimal("90.00"),
+        )
+        collection.jobs.add(january_job, february_job)
+
+        self.assertEqual(_collection_work_reference_date(collection), date(2024, 2, 20))
+
+        monthly_data = _monthly_dashboard_data()
+
+        self.assertEqual(monthly_data, [{"month": "2024-02", "expenses": 0.0, "gains": 90.0}])

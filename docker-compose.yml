@@ -30,6 +30,7 @@ services:
       DB_PORT: "${DB_PORT:-5432}"
     volumes:
       - ./backend:/app
+      - ./config:/config
     ports:
       - "${WEB_PUBLIC_PORT:-8000}:8000"
     depends_on:
@@ -37,11 +38,17 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:8000/api}"
+        NEXT_PUBLIC_COMPANY_NAME: "${NEXT_PUBLIC_COMPANY_NAME:-Control Empresarial}"
     container_name: business-frontend
     environment:
       NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:8000/api}"
       NEXT_PUBLIC_COMPANY_NAME: "${NEXT_PUBLIC_COMPANY_NAME:-Control Empresarial}"
+    volumes:
+      - ./frontend/public:/app/frontend/public
     ports:
       - "${FRONTEND_PUBLIC_PORT:-3000}:3000"
     depends_on:

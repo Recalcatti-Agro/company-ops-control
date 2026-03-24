@@ -17,5 +17,23 @@ backend/data/
 *.sql
 *.xlsx
 
+frontend/public/*
+!frontend/public/.gitkeep
+!frontend/public/*.png
+!frontend/public/*.svg
+
 .claude/
 CLAUDE.md
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Local helper scripts
+rebuild-front-local.sh
+rebuild-back-local.sh

@@ -2,6 +2,9 @@
 
 Guía operativa para desplegar esta aplicación en producción usando una sola instancia de AWS Lightsail.
 
+Para comandos del día a día sobre el entorno ya desplegado, ver también:
+- `docs/RUNBOOK_PRODUCCION.md`
+
 Esta es la opción recomendada para la carga actual del sistema:
 - muy pocos usuarios,
 - uso interno,
@@ -74,6 +77,18 @@ Archivos reales ya incluidos en el repo:
 - `docker-compose.prod.yml`
 - `Caddyfile`
 - `backend/entrypoint.prod.sh`
+- `config/branding.json`
+- `frontend/public/logo.png`
+- `frontend/public/favicon.png`
+- `frontend/public/favicon.svg`
+
+Branding:
+- el repo trae defaults versionados en `config/branding.json`
+- hoy esos defaults están seteados para `Recalcatti`
+- el navbar del frontend usa `frontend/public/logo.png`
+- los iconos del sitio salen de `frontend/public/favicon.png` y `frontend/public/favicon.svg`
+- el dominio real y la URL real de la API no se versionan en ese archivo
+- `APP_DOMAIN` y `NEXT_PUBLIC_API_URL` siguen yendo por `.env`
 
 ## 4. Paso previo: control de costos y alertas
 
@@ -298,6 +313,8 @@ Si el servidor no tiene una clave autorizada en GitHub, el clone por SSH va a fa
 
 No reutilizar el `.env` local de desarrollo sin revisar.
 
+El branding base ya viene en `config/branding.json`, así que en `.env` solo hace falta pisarlo si querés otro nombre visible.
+
 Crear un `.env` de producción con valores propios del servidor:
 
 ```env
@@ -308,8 +325,8 @@ CSRF_TRUSTED_ORIGINS=https://control.tudominio.com
 CORS_ALLOWED_ORIGINS=https://control.tudominio.com
 APP_DOMAIN=control.tudominio.com
 
-COMPANY_NAME=Tu Empresa
-NEXT_PUBLIC_COMPANY_NAME=Tu Empresa
+COMPANY_NAME=Recalcatti
+NEXT_PUBLIC_COMPANY_NAME=Recalcatti
 NEXT_PUBLIC_API_URL=https://control.tudominio.com/api
 
 POSTGRES_DB=opsdb
@@ -322,6 +339,22 @@ DB_PASSWORD=poner-una-password-larga-y-unica
 DB_HOST=db
 DB_PORT=5432
 ```
+
+Si no definís `COMPANY_NAME` y `NEXT_PUBLIC_COMPANY_NAME`, el repo usa los defaults versionados del archivo:
+
+```text
+config/branding.json
+```
+
+No guardar en ese archivo:
+- dominio real
+- URL real de la API
+- secretos
+- credenciales
+
+Notas:
+- `NEXT_PUBLIC_*` en Next.js se inyecta en build time
+- si cambiás `NEXT_PUBLIC_API_URL` o `NEXT_PUBLIC_COMPANY_NAME`, hace falta rebuild del servicio `frontend`
 
 ## 14. Paso 10: Proxy HTTPS con Caddy
 
@@ -390,6 +423,11 @@ Puntos resueltos en ese compose:
 - backend productivo con `gunicorn`,
 - `migrate` y `collectstatic` automáticos en el arranque del backend.
 
+Detalle importante:
+- el servicio `frontend` se builda desde la raíz del repo
+- eso permite incluir `config/branding.json` dentro de la imagen
+- el backend sigue buildándose desde `./backend`
+
 ## 16. Paso 12: Levantar la aplicación
 
 Desde la raíz del repo:
@@ -398,14 +436,16 @@ Desde la raíz del repo:
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-En una instancia de `1 GB`, si solo cambió el frontend conviene hacer:
+En una instancia de `1 GB`, si solo cambió una parte, conviene evitar rebuild total:
+
+Solo frontend:
 
 ```bash
 docker compose -f docker-compose.prod.yml build frontend
 docker compose -f docker-compose.prod.yml up -d frontend
 ```
 
-Y si solo cambió el backend:
+Solo backend:
 
 ```bash
 docker compose -f docker-compose.prod.yml build web

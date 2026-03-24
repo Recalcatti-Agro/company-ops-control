@@ -63,6 +63,13 @@ export default function QuickExpensePage() {
   }, [date]);
 
   const amountNumber = Number(amount || 0);
+  const trimmedConcept = concept.trim();
+  const needsInvestor = !sessionInvestorId || paidBy === "INVESTOR";
+  const canSubmit =
+    Boolean(trimmedConcept) &&
+    amountNumber > 0 &&
+    !saving;
+
   const amountUsd = useMemo(() => {
     if (!fxQuote || !amountNumber) return 0;
     return amountNumber * fxQuote.usd_per_ars;
@@ -80,6 +87,10 @@ export default function QuickExpensePage() {
       setError("Seleccioná qué inversor pagó.");
       return;
     }
+    if (!trimmedConcept) {
+      setError("Completá el concepto.");
+      return;
+    }
     if (!amountNumber || amountNumber <= 0) {
       setError("El monto debe ser mayor a cero.");
       return;
@@ -87,7 +98,7 @@ export default function QuickExpensePage() {
 
     const payload = {
       date,
-      concept: concept.trim(),
+      concept: trimmedConcept,
       amount,
       currency: "ARS",
       paid_by: paidBy,
@@ -193,13 +204,7 @@ export default function QuickExpensePage() {
           </div>
         ) : null}
 
-        <button className="btn" type="submit" disabled={
-          saving ||
-          !concept.trim() ||
-          !amountNumber ||
-          amountNumber <= 0 ||
-          (paidBy === "INVESTOR" && !payerInvestor)
-        }>
+        <button className="btn" type="submit" disabled={!canSubmit}>
           {saving ? "Guardando..." : "Agregar"}
         </button>
 

@@ -66,6 +66,36 @@ def _collection_work_reference_date(collection: JobCollection) -> date:
     return max(work_dates)
 
 
+def _monthly_dashboard_data() -> list[dict]:
+    monthly_map = defaultdict(lambda: {"expenses": Decimal("0"), "gains": Decimal("0")})
+
+    expenses_month = (
+        Expense.objects.annotate(month=TruncMonth("date")).values("month").annotate(total=Sum("amount_usd")).order_by("month")
+    )
+    for item in expenses_month:
+        monthly_map[item["month"]]["expenses"] = item["total"] or Decimal("0")
+
+    collections = (
+        JobCollection.objects.filter(status=JobCollection.Status.COLLECTED)
+        .prefetch_related("jobs")
+        .select_related("job")
+    )
+    for collection in collections:
+        reference_date = _collection_work_reference_date(collection)
+        month = reference_date.replace(day=1)
+        monthly_map[month]["gains"] += collection.collected_amount_usd or collection.amount_usd or Decimal("0")
+
+    return [
+        {
+            "month": month.strftime("%Y-%m"),
+            "expenses": float(data["expenses"]),
+            "gains": float(data["gains"]),
+        }
+        for month, data in sorted(monthly_map.items())
+        if month
+    ]
+
+
 def _q2(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
@@ -1037,35 +1067,13 @@ class DashboardViewSet(viewsets.ViewSet):
             or Decimal("0")
         )
 
-        expenses_month = (
-            Expense.objects.annotate(month=TruncMonth("date")).values("month").annotate(total=Sum("amount_usd")).order_by("month")
-        )
-        gains_month = (
-            JobCollection.objects.filter(status=JobCollection.Status.COLLECTED)
-            .annotate(month=TruncMonth("collection_date"))
-            .values("month", "amount_usd", "collected_amount_usd")
-            .order_by("month")
-        )
-
-        monthly_map = defaultdict(lambda: {"expenses": Decimal("0"), "gains": Decimal("0")})
-        for item in expenses_month:
-            monthly_map[item["month"]]["expenses"] = item["total"] or Decimal("0")
-        for item in gains_month:
-            monthly_map[item["month"]]["gains"] += item["collected_amount_usd"] or item["amount_usd"] or Decimal("0")
-
-        monthly_data = [
-            {
-                "month": month.strftime("%Y-%m"),
-                "expenses": float(data["expenses"]),
-                "gains": float(data["gains"]),
-            }
-            for month, data in sorted(monthly_map.items())
-            if month
-        ]
+        monthly_data = _monthly_dashboard_data()
 
         # Pipeline comercial
         jobs_pending = Job.objects.filter(status=Job.Status.PENDING).count()
-        jobs_done_uninvoiced = Job.objects.filter(status=Job.Status.DONE).count()
+        jobs_done_uninvoiced_qs = Job.objects.filter(status=Job.Status.DONE)
+        jobs_done_uninvoiced = jobs_done_uninvoiced_qs.count()
+        jobs_done_uninvoiced_ha = jobs_done_uninvoiced_qs.aggregate(total=Sum("hectares"))["total"] or Decimal("0")
         billed_open_qs = JobCollection.objects.filter(status=JobCollection.Status.BILLED)
         billed_uncollected_count = billed_open_qs.count()
         billed_uncollected_ars = billed_open_qs.aggregate(total=Sum("amount_ars"))["total"] or Decimal("0")
@@ -1121,6 +1129,7 @@ class DashboardViewSet(viewsets.ViewSet):
                 "pipeline": {
                     "jobs_pending": jobs_pending,
                     "jobs_done_uninvoiced": jobs_done_uninvoiced,
+                    "jobs_done_uninvoiced_ha": float(jobs_done_uninvoiced_ha),
                     "billed_uncollected_count": billed_uncollected_count,
                     "billed_uncollected_ars": float(billed_uncollected_ars),
                     "billed_uncollected_usd": float(billed_uncollected_usd),

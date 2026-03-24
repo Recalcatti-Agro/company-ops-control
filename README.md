@@ -1,4 +1,4 @@
-# Control Empresarial
+# Recalcatti - Control
 
 Aplicación web para administrar operaciones de una empresa con marca parametrizable:
 - compras y cuotas,
@@ -17,6 +17,23 @@ Aplicación web para administrar operaciones de una empresa con marca parametriz
 - Contenedores: Docker Compose
 - Auth actual: TokenAuthentication (DRF)
 - Tipo de cambio: BCRA por fecha con fallback al día hábil anterior
+
+## Branding
+
+- El repo trae defaults versionados en `config/branding.json`
+- Hoy esos defaults están seteados para `Recalcatti`
+- Los assets visuales versionados viven en `frontend/public/`
+  - `logo.png` para el navbar
+  - `favicon.png` y `favicon.svg` para metadata/iconos
+- Dominio real y URL de API siguen yendo solo por `.env`
+- Overrides soportados:
+  - `COMPANY_NAME`
+  - `NEXT_PUBLIC_COMPANY_NAME`
+
+Precedencia recomendada:
+1. `.env` del entorno
+2. `config/branding.json`
+3. fallback final del código
 
 ## Módulos funcionales
 
@@ -55,16 +72,18 @@ Aplicación web para administrar operaciones de una empresa con marca parametriz
 - `backend/server_config/` -> configuración Django (settings/urls/wsgi/asgi)
 - `frontend/`
 - `frontend/app/` -> pantallas
+- `frontend/components/Nav.tsx` -> navbar y brand visual
 - `frontend/lib/api.ts` -> cliente API + sesión local
+- `config/branding.json` -> defaults versionados de marca
 - `docker-compose.yml` -> stack local/desarrollo
 - `docker-compose.prod.yml` -> stack de producción para Lightsail
+- `infra/terraform/` -> infraestructura mínima reproducible (Lightsail + S3 + IAM + budget)
 - `Caddyfile` -> reverse proxy y TLS automático
 - `scripts/backup_db_prod.sh` -> backup lógico simple de PostgreSQL en producción
 - `scripts/backup_db_prod_to_s3.sh` -> backup lógico + subida a S3
+- `docs/RUNBOOK_PRODUCCION.md` -> comandos operativos reales de producción
 - `docs/BASE_DE_DATOS.md` -> esquema de base de datos (tablas, relaciones y reglas)
 - `docs/FLUJO_CAJA_Y_TRABAJOS.md` -> flujo operativo detallado
-- `docs/ARQUITECTURA_AWS.md` -> arquitectura target en AWS + Cognito
-- `docs/DESPLIEGUE_AWS_DESDE_CERO.md` -> guía paso a paso para desplegar desde cero en AWS
 - `docs/DESPLIEGUE_AWS_LIGHTSAIL.md` -> guía operativa recomendada para deploy simple en Lightsail
 
 ## Endpoints API principales
@@ -111,6 +130,20 @@ cp .env.example .env
 docker compose up --build -d
 ```
 
+Si solo cambió el frontend:
+
+```bash
+docker compose build frontend
+docker compose up -d frontend
+```
+
+Si solo cambió el backend:
+
+```bash
+docker compose build web
+docker compose up -d web
+```
+
 4. Migrar DB:
 
 ```bash
@@ -142,22 +175,50 @@ Frontend:
 - `NEXT_PUBLIC_API_URL`
 - `NEXT_PUBLIC_COMPANY_NAME`
 
+Notas:
+- `NEXT_PUBLIC_*` se inyecta en build time de Next.js
+- si cambia `NEXT_PUBLIC_API_URL` o `NEXT_PUBLIC_COMPANY_NAME`, hace falta rebuild del frontend
+- `config/branding.json` entra al frontend a través del build desde la raíz del repo
+
 Producción (`docker-compose.prod.yml` / `Caddyfile`):
 - `APP_DOMAIN`
+
+Nota:
+- `APP_DOMAIN` y `NEXT_PUBLIC_API_URL` no deben versionarse con valores reales de producción
+- `COMPANY_NAME` y `NEXT_PUBLIC_COMPANY_NAME` sí pueden quedar con defaults de `Recalcatti` en el repo
+
+## Documentación vigente
+
+- `docs/DESPLIEGUE_AWS_LIGHTSAIL.md`
+  - cómo está desplegado hoy el sistema en AWS Lightsail
+- `docs/RUNBOOK_PRODUCCION.md`
+  - comandos operativos cortos para deploy, restart, logs y backups
+- `docs/BASE_DE_DATOS.md`
+  - modelo de datos y relaciones
+- `docs/FLUJO_CAJA_Y_TRABAJOS.md`
+  - reglas operativas del negocio
+- `docs/MOBILE.md`
+  - decisiones de UX mobile y flujos rápidos
+- `docs/TESTS.md`
+  - cómo correr y qué cubren los tests backend
+- `infra/terraform/README.md`
+  - cómo recrear la infraestructura base actual con Terraform
 
 ## Seguridad y producción
 
 Estado actual:
 - Login con token DRF + almacenamiento local.
 
-Objetivo recomendado en AWS:
-- Cognito User Pool + Hosted UI + PKCE
-- JWT validados en Django
-- sesión en cookies seguras (evitar `localStorage`)
+Infra actual:
+- AWS Lightsail
+- Docker Compose
+- Caddy
+- PostgreSQL en la misma instancia
+- backup lógico diario a S3 + snapshots de Lightsail
 
-Ver detalle en `docs/ARQUITECTURA_AWS.md`.
-Deploy operativo desde cero: `docs/DESPLIEGUE_AWS_DESDE_CERO.md`.
-Deploy recomendado hoy para esta carga: `docs/DESPLIEGUE_AWS_LIGHTSAIL.md`.
+Deploy recomendado hoy para esta carga:
+- `docs/DESPLIEGUE_AWS_LIGHTSAIL.md`
+- `docs/RUNBOOK_PRODUCCION.md`
 
 ## GitHub público (higiene mínima)
 

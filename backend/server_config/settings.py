@@ -1,9 +1,18 @@
 import os
+import json
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = BASE_DIR.parent
 
-COMPANY_NAME = os.getenv("COMPANY_NAME", "Control Empresarial")
+_branding_path = Path(os.getenv("BRANDING_JSON_PATH", str(PROJECT_ROOT / "config" / "branding.json")))
+try:
+    with open(_branding_path, "r", encoding="utf-8") as _f:
+        BRANDING_DEFAULTS = json.load(_f)
+except FileNotFoundError:
+    BRANDING_DEFAULTS = {}
+
+COMPANY_NAME = os.getenv("COMPANY_NAME", BRANDING_DEFAULTS.get("companyName", "Control Empresarial"))
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "change-me-in-env")
 DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
 ALLOWED_HOSTS = [host.strip() for host in os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",") if host.strip()]

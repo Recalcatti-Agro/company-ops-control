@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import Image from "next/image";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiFetch, setAuthSession, setToken } from "@/lib/api";
@@ -19,6 +20,15 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    const prev = document.documentElement.getAttribute("data-theme");
+    document.documentElement.setAttribute("data-theme", "light");
+    return () => {
+      if (prev) document.documentElement.setAttribute("data-theme", prev);
+      else document.documentElement.removeAttribute("data-theme");
+    };
+  }, []);
+
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
@@ -32,7 +42,7 @@ export default function LoginPage() {
       setToken(data.token);
       setAuthSession({ user: data.user, investorId: data.investor_id });
       const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches;
-      router.push(isMobile ? "/expenses/quick" : "/dashboard");
+      router.push(isMobile ? "/home" : "/dashboard");
     } catch {
       setError("Usuario o contraseña inválidos");
     } finally {
@@ -42,8 +52,16 @@ export default function LoginPage() {
 
   return (
     <section className="card" style={{ maxWidth: 420, margin: "72px auto" }}>
-      <h1>Ingreso</h1>
-      <p className="small">Administración {COMPANY_NAME}</p>
+      <div style={{ textAlign: "center", marginBottom: 24 }}>
+        <Image
+          src="/logo-login.png"
+          alt={COMPANY_NAME}
+          width={1480}
+          height={297}
+          style={{ width: "min(280px, 75%)", height: "auto" }}
+          priority
+        />
+      </div>
       <form className="form" onSubmit={onSubmit}>
         <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Usuario" required />
         <input

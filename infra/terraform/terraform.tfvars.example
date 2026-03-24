@@ -1,0 +1,26 @@
+aws_region                = "us-east-1"
+project_slug              = "recalcatti-agro"
+environment               = "prod"
+instance_name             = "ops-control-prod"
+static_ip_name            = "ops-control-prod-ip"
+lightsail_availability_zone = "us-east-1a"
+lightsail_blueprint_id    = "ubuntu_24_04"
+lightsail_bundle_id       = "medium_2_0"
+lightsail_key_pair_name   = "patricio-macbook"
+
+# Leave null to auto-generate:
+# recalcatti-agro-db-backups-<account_id>-<region>
+backup_bucket_name        = null
+backup_prefix             = "production"
+backup_expiration_days    = 30
+
+backup_iam_user_name      = "lightsail-backup-bot"
+create_backup_access_key  = false
+
+enable_budget             = true
+monthly_budget_limit_usd  = "12"
+budget_alert_email        = "tu-email@example.com"
+
+tags = {
+  Owner = "Patricio"
+}
