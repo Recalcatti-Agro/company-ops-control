@@ -7,6 +7,18 @@ import { useRouter } from "next/navigation";
 import { apiFetch, getAuthSession, getToken } from "@/lib/api";
 
 type Investor = { id: number; name: string };
+type Purchase = { id: number; concept: string };
+type Job = { id: number; client: string; work_type: string };
+type PaymentObligation = {
+  id: number;
+  concept: string;
+  source: "MANUAL" | "PURCHASE_INSTALLMENT";
+  purchase: number | null;
+  installment_number: number | null;
+  installment_total: number | null;
+  due_date: string;
+  status: string;
+};
 type FxQuote = {
   requested_date: string;
   rate_date: string;
@@ -23,6 +35,12 @@ export default function QuickExpensePage() {
   const [paidBy, setPaidBy] = useState<"INVESTOR" | "CASH">("INVESTOR");
   const [payerInvestor, setPayerInvestor] = useState<number | "">("");
   const [investors, setInvestors] = useState<Investor[]>([]);
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [obligations, setObligations] = useState<PaymentObligation[]>([]);
+  const [purchase, setPurchase] = useState<number | "">("");
+  const [job, setJob] = useState<number | "">("");
+  const [paymentObligation, setPaymentObligation] = useState<number | "">("");
   const [showExtra, setShowExtra] = useState(false);
   const [fxQuote, setFxQuote] = useState<FxQuote | null>(null);
   const [saving, setSaving] = useState(false);
@@ -46,10 +64,16 @@ export default function QuickExpensePage() {
 
     Promise.all([
       apiFetch<Investor[]>("/investors/"),
+      apiFetch<Purchase[]>("/purchases/"),
+      apiFetch<Job[]>("/jobs/"),
+      apiFetch<PaymentObligation[]>("/payment-obligations/"),
       apiFetch<FxQuote>(`/fx/ars-usd/?date=${date}`),
     ])
-      .then(([inv, fx]) => {
+      .then(([inv, purch, j, obl, fx]) => {
         setInvestors(inv);
+        setPurchases(purch);
+        setJobs(j);
+        setObligations(obl);
         setFxQuote(fx);
       })
       .catch(() => setError("No se pudo cargar la pantalla"));
@@ -69,6 +93,16 @@ export default function QuickExpensePage() {
     Boolean(trimmedConcept) &&
     amountNumber > 0 &&
     !saving;
+
+  const jobById = useMemo(
+    () => Object.fromEntries(jobs.map((j) => [j.id, `${j.client || "Sin cliente"} - ${j.work_type || `Trabajo #${j.id}`}`])),
+    [jobs]
+  );
+  const purchaseById = useMemo(() => Object.fromEntries(purchases.map((p) => [p.id, p.concept])), [purchases]);
+  const selectedObligations = useMemo(() => {
+    if (purchase) return obligations.filter((o) => o.purchase === purchase);
+    return obligations.filter((o) => !o.purchase);
+  }, [purchase, obligations]);
 
   const amountUsd = useMemo(() => {
     if (!fxQuote || !amountNumber) return 0;
@@ -103,9 +137,9 @@ export default function QuickExpensePage() {
       currency: "ARS",
       paid_by: paidBy,
       payer_investor: paidBy === "INVESTOR" ? payerInvestor : null,
-      purchase: null,
-      job: null,
-      payment_obligation: null,
+      purchase: purchase || null,
+      job: job || null,
+      payment_obligation: paymentObligation || null,
       notes: "Carga rápida móvil",
     };
 
@@ -114,6 +148,9 @@ export default function QuickExpensePage() {
       await apiFetch("/expenses/", { method: "POST", body: JSON.stringify(payload) });
       setAmount("");
       setConcept("");
+      setPurchase("");
+      setJob("");
+      setPaymentObligation("");
       setOkMessage("Gasto guardado.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo guardar el gasto");
@@ -236,20 +273,73 @@ export default function QuickExpensePage() {
               <div className="ifta-field filled">
                 <select
                   id="quick-expense-investor-extra"
-                  name="payer_investor"
                   value={payerInvestor}
                   onChange={(e) => setPayerInvestor(e.target.value ? Number(e.target.value) : "")}
                 >
                   <option value="">Seleccionar inversor</option>
                   {investors.map((inv) => (
-                    <option key={inv.id} value={inv.id}>
-                      {inv.name}
-                    </option>
+                    <option key={inv.id} value={inv.id}>{inv.name}</option>
                   ))}
                 </select>
                 <label htmlFor="quick-expense-investor-extra">Inversor</label>
               </div>
             ) : null}
+
+            <div className="ifta-field filled">
+              <select
+                id="quick-expense-purchase"
+                value={purchase}
+                onChange={(e) => {
+                  setPurchase(e.target.value ? Number(e.target.value) : "");
+                  setPaymentObligation("");
+                }}
+              >
+                <option value="">Sin compra asociada</option>
+                {purchases.map((p) => (
+                  <option key={p.id} value={p.id}>{p.concept}</option>
+                ))}
+              </select>
+              <label htmlFor="quick-expense-purchase">Compra</label>
+            </div>
+
+            <div className="ifta-field filled">
+              <select
+                id="quick-expense-job"
+                value={job}
+                onChange={(e) => setJob(e.target.value ? Number(e.target.value) : "")}
+              >
+                <option value="">Sin trabajo asociado</option>
+                {jobs.map((j) => (
+                  <option key={j.id} value={j.id}>{jobById[j.id]}</option>
+                ))}
+              </select>
+              <label htmlFor="quick-expense-job">Trabajo</label>
+            </div>
+
+            <div className="ifta-field filled">
+              <select
+                id="quick-expense-obligation"
+                value={paymentObligation}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : "";
+                  setPaymentObligation(val);
+                  if (!val) return;
+                  const obl = obligations.find((o) => o.id === val);
+                  if (obl?.purchase) setPurchase(obl.purchase);
+                }}
+              >
+                <option value="">Sin cuenta a pagar asociada</option>
+                {selectedObligations.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.source === "PURCHASE_INSTALLMENT"
+                      ? `Cuota ${o.installment_number}/${o.installment_total} - ${purchaseById[o.purchase || 0] || "Compra"}`
+                      : o.concept || `Obligación #${o.id}`}{" "}
+                    · {o.due_date}
+                  </option>
+                ))}
+              </select>
+              <label htmlFor="quick-expense-obligation">Cuenta a pagar</label>
+            </div>
           </>
         ) : null}
 
