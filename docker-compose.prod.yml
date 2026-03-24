@@ -33,6 +33,9 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL}"
+        NEXT_PUBLIC_COMPANY_NAME: "${NEXT_PUBLIC_COMPANY_NAME}"
     container_name: business-frontend
     restart: unless-stopped
     environment:
