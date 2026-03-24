@@ -25,10 +25,16 @@ export const getToken = (): string | null => {
 
 export const setToken = (token: string) => {
   localStorage.setItem(TOKEN_KEY, token);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("authchange"));
+  }
 };
 
 export const setAuthSession = (session: AuthSession) => {
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("authchange"));
+  }
 };
 
 export const getAuthSession = (): AuthSession | null => {
@@ -49,6 +55,9 @@ export const clearToken = () => {
   localStorage.removeItem(TOKEN_KEY_LEGACY);
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(SESSION_KEY_LEGACY);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("authchange"));
+  }
 };
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {

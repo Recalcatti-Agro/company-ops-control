@@ -28,8 +28,10 @@ export default function Nav() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
   useEffect(() => {
+    const syncAuthState = () => setHasToken(Boolean(getToken()));
+
     setMounted(true);
-    setHasToken(Boolean(getToken()));
+    syncAuthState();
     const legacyThemeKey = String.fromCharCode(
       114,
       101,
@@ -54,7 +56,20 @@ export default function Nav() {
       "light";
     setTheme(saved);
     document.documentElement.setAttribute("data-theme", saved);
+    window.addEventListener("authchange", syncAuthState);
+    window.addEventListener("storage", syncAuthState);
+
+    return () => {
+      window.removeEventListener("authchange", syncAuthState);
+      window.removeEventListener("storage", syncAuthState);
+    };
   }, []);
+
+  useEffect(() => {
+    if (mounted) {
+      setHasToken(Boolean(getToken()));
+    }
+  }, [mounted, pathname]);
 
   if (!mounted || !hasToken) return null;
 
