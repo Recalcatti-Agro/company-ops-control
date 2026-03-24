@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiFetch, getToken } from "@/lib/api";
@@ -537,8 +537,8 @@ export default function WorksPage() {
                   </thead>
                   <tbody>
                     {group.rows.map((row) => (
+                      <React.Fragment key={row.id}>
                       <tr
-                        key={row.id}
                         className={`row-clickable ${activeRowId === row.id ? "row-active" : ""}`}
                         onClick={() => {
                           if (invoiceMode) return;
@@ -567,7 +567,6 @@ export default function WorksPage() {
                         <td data-label="Tipo">
                           <div className="concept-cell">
                             <span className="concept-main">{row.work_type || "-"}</span>
-                            {activeRowId === row.id && row.notes ? <div className="concept-subline">{`Aclaraciones: ${row.notes}`}</div> : null}
                           </div>
                         </td>
                         <td data-label="Hectáreas">{row.hectares ? Number(row.hectares).toFixed(2) : "-"}</td>
@@ -651,6 +650,14 @@ export default function WorksPage() {
                           </div>
                         </td>
                       </tr>
+                      {activeRowId === row.id && row.notes ? (
+                        <tr className="row-detail">
+                          <td colSpan={invoiceMode ? 7 : 6} style={{ padding: "6px 14px 10px", borderTop: 0 }}>
+                            <span className="concept-subline">{`Aclaraciones: ${row.notes}`}</span>
+                          </td>
+                        </tr>
+                      ) : null}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>

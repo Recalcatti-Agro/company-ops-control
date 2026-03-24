@@ -664,7 +664,7 @@ class DashboardMonthlyDataTest(TestCase):
 
         monthly_data = _monthly_dashboard_data()
 
-        self.assertEqual(monthly_data, [{"month": "2024-01", "expenses": 0.0, "gains": 100.0}])
+        self.assertEqual(monthly_data, [{"month": "2024-01", "expenses": 0.0, "gains": 100.0, "billed": 0.0}])
 
     def test_grouped_collection_uses_latest_work_date_reference(self):
         january_job = make_job(on_date=date(2024, 1, 15))
@@ -680,4 +680,18 @@ class DashboardMonthlyDataTest(TestCase):
 
         monthly_data = _monthly_dashboard_data()
 
-        self.assertEqual(monthly_data, [{"month": "2024-02", "expenses": 0.0, "gains": 90.0}])
+        self.assertEqual(monthly_data, [{"month": "2024-02", "expenses": 0.0, "gains": 90.0, "billed": 0.0}])
+
+    def test_open_billed_collection_is_included_as_monthly_billed_reference(self):
+        job = make_job(on_date=date(2024, 4, 12))
+        collection = make_collection(
+            Decimal("140.00"),
+            on_date=date(2024, 5, 3),
+            status=JobCollection.Status.BILLED,
+        )
+        collection.job = job
+        collection.save(update_fields=["job"])
+
+        monthly_data = _monthly_dashboard_data()
+
+        self.assertEqual(monthly_data, [{"month": "2024-04", "expenses": 0.0, "gains": 0.0, "billed": 140.0}])

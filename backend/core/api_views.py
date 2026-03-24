@@ -67,7 +67,7 @@ def _collection_work_reference_date(collection: JobCollection) -> date:
 
 
 def _monthly_dashboard_data() -> list[dict]:
-    monthly_map = defaultdict(lambda: {"expenses": Decimal("0"), "gains": Decimal("0")})
+    monthly_map = defaultdict(lambda: {"expenses": Decimal("0"), "gains": Decimal("0"), "billed": Decimal("0")})
 
     expenses_month = (
         Expense.objects.annotate(month=TruncMonth("date")).values("month").annotate(total=Sum("amount_usd")).order_by("month")
@@ -75,12 +75,22 @@ def _monthly_dashboard_data() -> list[dict]:
     for item in expenses_month:
         monthly_map[item["month"]]["expenses"] = item["total"] or Decimal("0")
 
-    collections = (
+    billed_collections = (
+        JobCollection.objects.filter(status=JobCollection.Status.BILLED)
+        .prefetch_related("jobs")
+        .select_related("job")
+    )
+    for collection in billed_collections:
+        reference_date = _collection_work_reference_date(collection)
+        month = reference_date.replace(day=1)
+        monthly_map[month]["billed"] += collection.amount_usd or Decimal("0")
+
+    collected_collections = (
         JobCollection.objects.filter(status=JobCollection.Status.COLLECTED)
         .prefetch_related("jobs")
         .select_related("job")
     )
-    for collection in collections:
+    for collection in collected_collections:
         reference_date = _collection_work_reference_date(collection)
         month = reference_date.replace(day=1)
         monthly_map[month]["gains"] += collection.collected_amount_usd or collection.amount_usd or Decimal("0")
@@ -90,6 +100,7 @@ def _monthly_dashboard_data() -> list[dict]:
             "month": month.strftime("%Y-%m"),
             "expenses": float(data["expenses"]),
             "gains": float(data["gains"]),
+            "billed": float(data["billed"]),
         }
         for month, data in sorted(monthly_map.items())
         if month

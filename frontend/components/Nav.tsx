@@ -8,17 +8,40 @@ import { useEffect, useState } from "react";
 import { clearToken, getToken } from "@/lib/api";
 import { COMPANY_NAME } from "@/lib/brand";
 
-const links: Array<{ href: string; label: string; desktopOnly?: boolean }> = [
-  { href: "/dashboard", label: "Dashboard", desktopOnly: true },
-  { href: "/home", label: "Home", desktopOnly: false },
-  { href: "/investors", label: "Inversores" },
-  { href: "/investments", label: "Compras" },
-  { href: "/commitments", label: "Cuentas a pagar" },
-  { href: "/expenses", label: "Gastos" },
-  { href: "/works", label: "Trabajos" },
-  { href: "/work-participations", label: "Distribuciones" },
-  { href: "/reinvestments", label: "Caja" },
-  { href: "/conversions", label: "TC" },
+type NavLink = { href: string; label: string; desktopOnly?: boolean };
+type NavSection = { section: string; links: NavLink[] };
+
+const navSections: NavSection[] = [
+  {
+    section: "",
+    links: [
+      { href: "/dashboard", label: "Home", desktopOnly: true },
+      { href: "/home", label: "Home", desktopOnly: false },
+    ],
+  },
+  {
+    section: "Operaciones",
+    links: [
+      { href: "/expenses", label: "Gastos" },
+      { href: "/works", label: "Trabajos" },
+      { href: "/work-participations", label: "Distribuciones" },
+    ],
+  },
+  {
+    section: "Finanzas",
+    links: [
+      { href: "/reinvestments", label: "Caja" },
+      { href: "/investments", label: "Compras" },
+      { href: "/commitments", label: "Cuentas a pagar" },
+      { href: "/conversions", label: "TC" },
+    ],
+  },
+  {
+    section: "Análisis",
+    links: [
+      { href: "/investors", label: "Inversores" },
+    ],
+  },
 ];
 
 export default function Nav() {
@@ -147,15 +170,20 @@ export default function Nav() {
         </div>
 
         <nav className="sidebar-nav">
-          {links.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`sidebar-link${link.desktopOnly === true ? " sidebar-link-desktop-only" : ""}${link.desktopOnly === false ? " sidebar-link-mobile-only" : ""}${pathname === link.href ? " active" : ""}`}
-              onClick={() => setMenuOpen(false)}
-            >
-              {link.label}
-            </Link>
+          {navSections.map((group) => (
+            <div key={group.section} className="sidebar-section">
+              {group.section ? <span className="sidebar-section-label">{group.section}</span> : null}
+              {group.links.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={`sidebar-link${link.desktopOnly === true ? " sidebar-link-desktop-only" : ""}${link.desktopOnly === false ? " sidebar-link-mobile-only" : ""}${pathname === link.href ? " active" : ""}`}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </div>
           ))}
         </nav>
 

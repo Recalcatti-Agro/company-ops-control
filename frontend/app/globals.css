@@ -143,6 +143,28 @@ a {
   overflow-y: auto;
 }
 
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 8px;
+}
+
+.sidebar-section + .sidebar-section {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.sidebar-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding: 4px 12px 2px;
+  opacity: 0.7;
+}
+
 .sidebar-link {
   display: flex;
   align-items: center;
@@ -229,6 +251,11 @@ a {
 table {
   width: 100%;
   border-collapse: collapse;
+}
+
+table th,
+table td:first-child {
+  white-space: nowrap;
 }
 
 .table-wrap {
@@ -530,6 +557,22 @@ textarea {
 
 .row-actions.is-open {
   display: inline-flex;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 4px 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 20;
+  white-space: nowrap;
+}
+
+.row-clickable td:last-child {
+  position: relative;
+  width: 1%;
 }
 
 .row-more-btn {

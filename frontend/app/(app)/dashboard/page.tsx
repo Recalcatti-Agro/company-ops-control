@@ -46,7 +46,7 @@ type DashboardResponse = {
     contribution_usd: number;
     percentage: number;
   }>;
-  monthly_data: Array<{ month: string; expenses: number; gains: number }>;
+  monthly_data: Array<{ month: string; expenses: number; gains: number; billed: number }>;
 };
 
 export default function DashboardPage() {
@@ -77,7 +77,7 @@ export default function DashboardPage() {
       maximumFractionDigits: digits,
     }).format(value);
 
-  const maxMonthly = Math.max(1, ...data.monthly_data.map((item) => Math.max(item.expenses, item.gains)));
+  const maxMonthly = Math.max(1, ...data.monthly_data.map((item) => Math.max(item.expenses, item.gains + item.billed)));
   const installmentPct =
     data.commitments.installments_total > 0
       ? (data.commitments.installments_paid / data.commitments.installments_total) * 100
@@ -234,24 +234,47 @@ export default function DashboardPage() {
 
         <div style={{ display: "grid", gap: 16 }}>
           {[...data.monthly_data].reverse().map((item) => {
-            const net = item.gains - item.expenses;
+            const projectedIncome = item.gains + item.billed;
+            const net = projectedIncome - item.expenses;
             return (
               <div key={item.month} style={{ display: "grid", gridTemplateColumns: "56px 1fr auto", alignItems: "center", gap: 12 }}>
                 <span className="small" style={{ fontWeight: 600, opacity: 0.75, textTransform: "capitalize" }}>{monthLabel(item.month)}</span>
                 <div style={{ display: "grid", gap: 5 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span className="small" style={{ width: 62, flexShrink: 0, opacity: 0.6 }}>Ganancia</span>
-                    <div style={{ height: 12, background: "var(--chart-track)", borderRadius: 999, flex: 1, minWidth: 0, overflow: "hidden" }}>
-                      <div style={{ width: `${(item.gains / maxMonthly) * 100}%`, height: "100%", background: "var(--primary)", borderRadius: 999, transition: "width 0.3s" }} />
+                    <div style={{ height: 12, background: "var(--chart-track)", borderRadius: 999, flex: 1, minWidth: 0, overflow: "hidden", display: "flex" }}>
+                      <div
+                        title={`Cobrado: U$S ${fmt(item.gains, 0)}`}
+                        style={{
+                          width: `${(item.gains / maxMonthly) * 100}%`,
+                          height: "100%",
+                          background: "var(--primary)",
+                          borderRadius: 999,
+                          transition: "width 0.3s",
+                        }}
+                      />
+                      <div
+                        title={`Facturado pendiente: U$S ${fmt(item.billed, 0)}`}
+                        style={{
+                          width: `${(item.billed / maxMonthly) * 100}%`,
+                          height: "100%",
+                          background: "#2563eb",
+                          borderRadius: 999,
+                          transition: "width 0.3s",
+                          opacity: 0.8,
+                        }}
+                      />
                     </div>
-                    <span className="small" style={{ width: 80, textAlign: "right", flexShrink: 0 }}>{fmt(item.gains, 0)}</span>
+                    <span className="small" style={{ width: 132, textAlign: "right", flexShrink: 0 }}>
+                      {fmt(item.gains, 0)} <span style={{ opacity: 0.5 }}>+ {fmt(item.billed, 0)}</span>
+                    </span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span className="small" style={{ width: 62, flexShrink: 0, opacity: 0.6 }}>Gastos</span>
                     <div style={{ height: 12, background: "var(--chart-track)", borderRadius: 999, flex: 1, minWidth: 0, overflow: "hidden" }}>
                       <div style={{ width: `${(item.expenses / maxMonthly) * 100}%`, height: "100%", background: "#b91c1c", borderRadius: 999, transition: "width 0.3s" }} />
                     </div>
-                    <span className="small" style={{ width: 80, textAlign: "right", flexShrink: 0 }}>{fmt(item.expenses, 0)}</span>
+                    <span className="small" style={{ width: 132, textAlign: "right", flexShrink: 0 }}>{fmt(item.expenses, 0)}</span>
                   </div>
                 </div>
                 <div style={{
