@@ -76,6 +76,18 @@ a {
   max-width: 1200px;
   margin: 0 auto;
   padding: 10px 24px;
+  flex-wrap: wrap;
+  position: relative;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-hamburger {
+  display: none;
 }
 
 .nav-links {
@@ -467,6 +479,54 @@ textarea {
   border-radius: 0;
 }
 
+.qe-amount-wrap {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.qe-prefix {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  background: var(--hover-bg);
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 15px;
+  border-right: 1px solid var(--line);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.qe-amount-wrap input {
+  border: 0;
+  border-radius: 0;
+  flex: 1;
+  font-size: 22px;
+  font-weight: 700;
+  padding: 14px 16px;
+  background: transparent;
+  color: var(--text);
+  min-width: 0;
+}
+
+.qe-extra-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 0;
+  text-align: left;
+}
+
+.qe-extra-toggle:hover {
+  color: var(--text);
+}
+
 .installment-progress {
   min-width: 140px;
 }
@@ -666,8 +726,42 @@ textarea {
     padding: 10px 16px;
   }
 
-  .nav-link-mobile-only {
+  .nav-hamburger {
     display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: 8px;
+    font-size: 18px;
+    cursor: pointer;
+  }
+
+  .nav-links {
+    display: none;
+    width: 100%;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 0 4px;
+    border-top: 1px solid var(--line);
+  }
+
+  .nav-links.is-open {
+    display: flex;
+  }
+
+  .nav-links .nav-link {
+    width: 100%;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 15px;
+  }
+
+  .nav-link-mobile-only {
+    display: flex;
   }
 
   .quick-expense-card {

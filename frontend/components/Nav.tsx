@@ -26,6 +26,7 @@ export default function Nav() {
   const [mounted, setMounted] = useState(false);
   const [hasToken, setHasToken] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     const syncAuthState = () => setHasToken(Boolean(getToken()));
@@ -68,6 +69,7 @@ export default function Nav() {
   useEffect(() => {
     if (mounted) {
       setHasToken(Boolean(getToken()));
+      setMenuOpen(false);
     }
   }, [mounted, pathname]);
 
@@ -77,27 +79,7 @@ export default function Nav() {
     <header className="nav">
       <div className="nav-inner">
         <strong>{COMPANY_NAME}</strong>
-        <nav className="nav-links">
-          {links.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`nav-link ${link.mobileOnly ? "nav-link-mobile-only" : ""} ${pathname === link.href ? "active" : ""}`}
-            >
-              {link.label}
-            </Link>
-          ))}
-          <button
-            className="nav-link"
-            style={{ border: 0, background: "transparent", cursor: "pointer" }}
-            onClick={() => {
-              clearToken();
-              setHasToken(false);
-              router.push("/login");
-            }}
-          >
-            Salir
-          </button>
+        <div className="nav-right">
           <label className="theme-switch" title="Cambiar tema">
             <input
               type="checkbox"
@@ -113,6 +95,36 @@ export default function Nav() {
               <span className="theme-knob" />
             </span>
           </label>
+          <button
+            className="nav-hamburger"
+            aria-label={menuOpen ? "Cerrar menú" : "Abrir menú"}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((prev) => !prev)}
+          >
+            {menuOpen ? "✕" : "☰"}
+          </button>
+        </div>
+        <nav className={`nav-links${menuOpen ? " is-open" : ""}`}>
+          {links.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={`nav-link ${link.mobileOnly ? "nav-link-mobile-only" : ""} ${pathname === link.href ? "active" : ""}`}
+            >
+              {link.label}
+            </Link>
+          ))}
+          <button
+            className="nav-link"
+            style={{ border: 0, background: "transparent", cursor: "pointer", textAlign: "left" }}
+            onClick={() => {
+              clearToken();
+              setHasToken(false);
+              router.push("/login");
+            }}
+          >
+            Salir
+          </button>
         </nav>
       </div>
     </header>
