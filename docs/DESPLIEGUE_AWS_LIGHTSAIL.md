@@ -20,6 +20,7 @@ Esta es la opción recomendada para la carga actual del sistema:
 - [8. Paso 4: Configurar el dominio de nic.ar](#8-paso-4-configurar-el-dominio-de-nicar)
 - [9. Paso 5: Conectarse por SSH](#9-paso-5-conectarse-por-ssh)
 - [10. Paso 6: Preparar el servidor](#10-paso-6-preparar-el-servidor)
+- [10.1 Agregar swap](#101-agregar-swap)
 - [11. Paso 7: Instalar Docker](#11-paso-7-instalar-docker)
 - [12. Paso 8: Clonar el repositorio](#12-paso-8-clonar-el-repositorio)
 - [13. Paso 9: Crear el `.env` de producción](#13-paso-9-crear-el-env-de-producción)
@@ -30,6 +31,7 @@ Esta es la opción recomendada para la carga actual del sistema:
 - [18. Paso 14: Backups](#18-paso-14-backups)
   - [18.1 Snapshots automáticos de Lightsail](#181-snapshots-automáticos-de-lightsail)
   - [18.2 Dump lógico de PostgreSQL](#182-dump-lógico-de-postgresql)
+  - [18.3 Backup lógico automático a S3](#183-backup-lógico-automático-a-s3)
 - [19. Paso 15: Actualizar la aplicación](#19-paso-15-actualizar-la-aplicación)
 - [20. Seguridad mínima obligatoria](#20-seguridad-mínima-obligatoria)
 - [21. Estado recomendado del proyecto antes del deploy](#21-estado-recomendado-del-proyecto-antes-del-deploy)
@@ -241,6 +243,25 @@ sudo ufw allow 443
 sudo ufw enable
 ```
 
+## 10.1 Agregar swap
+
+En una instancia de `1 GB`, los builds de Docker pueden agotar la memoria y dejar la VM sin responder.
+
+Antes de hacer rebuilds en producción, agregar swap:
+
+```bash
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h
+```
+
+Recomendación:
+- dejar este swap permanente,
+- no rebuildar toda la stack si solo cambió frontend o backend.
+
 ## 11. Paso 7: Instalar Docker
 
 ```bash
@@ -377,6 +398,20 @@ Desde la raíz del repo:
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
+En una instancia de `1 GB`, si solo cambió el frontend conviene hacer:
+
+```bash
+docker compose -f docker-compose.prod.yml build frontend
+docker compose -f docker-compose.prod.yml up -d frontend
+```
+
+Y si solo cambió el backend:
+
+```bash
+docker compose -f docker-compose.prod.yml build web
+docker compose -f docker-compose.prod.yml up -d web
+```
+
 Crear superusuario si hace falta:
 
 ```bash
@@ -431,6 +466,361 @@ Recomendación:
 Script incluido en el repo:
 - `scripts/backup_db_prod.sh`
 
+### 18.3 Backup lógico automático a S3
+
+Guardar el dump solo dentro de la instancia no alcanza. Si perdés la VM, perdés también los archivos del backup local.
+
+La recomendación es:
+
+1. generar dump lógico diario,
+2. subirlo a S3,
+3. aplicar lifecycle rule para borrar backups viejos.
+
+#### Paso 1: Crear bucket S3
+
+En S3:
+
+1. `Create bucket`
+2. nombre sugerido:
+   - `recalcatti-agro-db-backups`
+3. completar la pantalla así:
+
+- `AWS Region`
+  - elegir la misma región principal donde te resulte cómodo operar
+  - si querés simplicidad, usar la misma región donde tenés Lightsail o una cercana
+
+- `Bucket type`
+  - elegir `General purpose`
+  - no usar `Directory bucket`
+
+- `Bucket name`
+  - ejemplo: `recalcatti-agro-db-backups`
+  - tiene que ser único globalmente en AWS
+  - usar solo minúsculas, números y guiones
+
+- `Object Ownership`
+  - dejar `ACLs disabled (recommended)`
+  - dejar `Bucket owner enforced`
+
+- `Block Public Access settings for this bucket`
+  - dejar activadas las 4 opciones
+  - no desactivar nada
+  - este bucket no debe ser público
+
+- `Bucket Versioning`
+  - para este caso, podés dejar `Disable`
+  - si querés más seguridad ante borrados accidentales, podés usar `Enable`, pero aumenta storage y complejidad
+  - mi recomendación para arrancar: `Disable`
+
+- `Tags`
+  - opcional
+  - recomendación:
+    - key: `project`
+    - value: `company-ops-control`
+  - opcionalmente:
+    - key: `environment`
+    - value: `production`
+
+- `Default encryption`
+  - elegir `Server-side encryption with Amazon S3 managed keys (SSE-S3)`
+  - no hace falta `SSE-KMS` para este caso pequeño
+
+- `Bucket Key`
+  - elegir `Disable`
+  - con `SSE-S3` no aporta valor en este caso
+
+- `Advanced settings`
+  - no habilitar `Object Lock`
+  - no hace falta para este flujo
+
+4. `Create bucket`
+
+Elección recomendada resumida:
+
+- `General purpose`
+- `ACLs disabled`
+- `Bucket owner enforced`
+- `Block all public access = ON`
+- `Versioning = Disable`
+- `Default encryption = SSE-S3`
+- `Bucket Key = Disable`
+- `Object Lock = OFF`
+
+Referencias oficiales:
+- Crear bucket: https://docs.aws.amazon.com/AmazonS3/latest/user-guide/create-bucket.html
+- Overview de general purpose buckets: https://docs.aws.amazon.com/console/s3/usings3bucket
+
+#### Paso 2: Crear primero la policy IAM mínima
+
+Antes de crear el usuario, conviene crear la policy específica que va a usar.
+
+Objetivo:
+- permitir listar el bucket,
+- permitir subir backups,
+- permitir leer backups si necesitás verificar o restaurar.
+
+No queremos dar:
+- `AdministratorAccess`
+- `AmazonS3FullAccess`
+- permisos sobre otros buckets
+
+##### 2.1 Ir a IAM
+
+1. En AWS, buscá `IAM`
+2. Entrá al servicio `IAM`
+3. En el menú izquierdo, abrí:
+   - `Policies`
+
+##### 2.2 Crear policy
+
+1. Click en `Create policy`
+2. Elegí la pestaña:
+   - `JSON`
+3. Pegá esta policy, reemplazando el nombre del bucket si usaste otro:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::recalcatti-agro-db-backups",
+        "arn:aws:s3:::recalcatti-agro-db-backups/*"
+      ]
+    }
+  ]
+}
+```
+
+##### 2.3 Guardar la policy
+
+1. Click en `Next`
+2. `Policy name`
+   - sugerido: `recalcatti-agro-backup-s3-policy`
+3. `Description`
+   - sugerido: `Permite listar, subir y leer backups de base en S3`
+4. `Create policy`
+
+Cuando termine, ya tenés el permiso mínimo preparado.
+
+#### Paso 3: Crear el usuario IAM para backups
+
+Ahora sí, crear el usuario técnico que va a usar esa policy.
+
+Objetivo:
+- usuario programático,
+- sin acceso a consola,
+- solo para `aws cli` en la VM.
+
+##### 3.1 Ir a Users
+
+1. En `IAM`
+2. Menú izquierdo:
+   - `Users`
+3. Click en:
+   - `Create user`
+
+##### 3.2 Completar datos del usuario
+
+En la pantalla de creación:
+
+- `User name`
+  - sugerido: `lightsail-backup-bot`
+
+- `Provide user access to the AWS Management Console`
+  - elegir `No`
+  - este usuario no necesita entrar a la consola web
+
+Después:
+- `Next`
+
+##### 3.3 Asignar permisos
+
+En `Set permissions`, AWS muestra varias opciones:
+
+- `Add user to group`
+- `Copy permissions`
+- `Attach policies directly`
+
+Elegir:
+- **`Attach policies directly`**
+
+Razón:
+- es un usuario técnico simple,
+- no lo queremos en `Admins`,
+- no queremos copiar permisos de otro usuario,
+- y tampoco hace falta crear un grupo solo para esto.
+
+Después:
+1. en el buscador de policies, buscar:
+   - `recalcatti-agro-backup-s3-policy`
+2. marcar esa policy
+
+Importante:
+- no agregar `AdministratorAccess`
+- no agregar `AmazonS3FullAccess`
+- no usar el grupo `Admins`
+
+`Set permissions boundary`:
+- dejar vacío
+- no hace falta para este caso
+
+Después:
+- `Next`
+
+##### 3.4 Revisar y crear el usuario
+
+Revisar que quede así:
+
+- usuario: `lightsail-backup-bot`
+- acceso a consola: `No`
+- permisos: solo la policy custom del bucket
+
+Después:
+- `Create user`
+
+#### Paso 4: Crear access key para ese usuario
+
+Ahora necesitás las credenciales que va a usar la VM para subir backups.
+
+##### 4.1 Entrar al usuario
+
+1. Abrí el usuario recién creado:
+   - `lightsail-backup-bot`
+2. Ir a la pestaña:
+   - `Security credentials`
+
+##### 4.2 Crear access key
+
+1. Bajá hasta la sección:
+   - `Access keys`
+2. Click en:
+   - `Create access key`
+
+AWS te va a pedir un caso de uso.
+
+Elegir:
+- `Application running on an AWS compute service`
+
+Razón:
+- la access key se va a usar desde la instancia Lightsail,
+- o sea desde una workload corriendo dentro de AWS.
+
+Si cambia el wording en la consola, usar la opción equivalente a:
+- aplicación corriendo en infraestructura AWS,
+- acceso programático desde un servidor en AWS.
+
+Si AWS muestra un checkbox de confirmación/acknowledgement:
+- marcarlo
+
+Después:
+- `Next`
+
+##### 4.3 Description tag
+
+Opcional, pero recomendable:
+
+- `Description tag value`
+  - sugerido: `lightsail-db-backups`
+
+Después:
+- `Create access key`
+
+##### 4.4 Guardar credenciales
+
+AWS te va a mostrar:
+
+- `Access key ID`
+- `Secret access key`
+
+Guardalas en ese momento:
+- copiándolas,
+- o descargando el `.csv`
+
+Importante:
+- la `Secret access key` después no se vuelve a mostrar
+
+#### Paso 5: Instalar AWS CLI en la VM
+
+```bash
+sudo apt update
+sudo apt install -y awscli
+aws --version
+```
+
+#### Paso 6: Configurar credenciales en la VM
+
+```bash
+aws configure
+```
+
+Completar:
+- `AWS Access Key ID`
+- `AWS Secret Access Key`
+- `Default region name`
+  - usar la región donde creaste el bucket o la región principal que estés usando
+- `Default output format`
+  - `json`
+
+#### Paso 7: Probar subida manual
+
+Script incluido en el repo:
+- `scripts/backup_db_prod_to_s3.sh`
+
+Prueba manual:
+
+```bash
+cd ~/company-ops-control
+export POSTGRES_USER=opsuser
+export POSTGRES_DB=opsdb
+export BACKUP_S3_BUCKET=recalcatti-agro-db-backups
+export BACKUP_S3_PREFIX=production
+./scripts/backup_db_prod_to_s3.sh
+```
+
+Verificar:
+
+```bash
+aws s3 ls s3://recalcatti-agro-db-backups/production/
+```
+
+#### Paso 8: Automatizar con cron
+
+Editar el crontab del usuario `ubuntu`:
+
+```bash
+crontab -e
+```
+
+Ejemplo para correr todos los días a las `03:10`:
+
+```cron
+10 3 * * * export POSTGRES_USER=opsuser POSTGRES_DB=opsdb BACKUP_S3_BUCKET=recalcatti-agro-db-backups BACKUP_S3_PREFIX=production && cd /home/ubuntu/company-ops-control && /bin/sh ./scripts/backup_db_prod_to_s3.sh >> /home/ubuntu/backup_db_prod.log 2>&1
+```
+
+Ver crontab actual:
+
+```bash
+crontab -l
+```
+
+#### Paso 9: Lifecycle rule en S3
+
+En el bucket:
+
+1. `Management`
+2. `Lifecycle rules`
+3. crear regla para el prefijo `production/`
+4. expirar objetos viejos, por ejemplo a los `30 días`
+
+Eso evita crecimiento indefinido del costo.
+
 ## 19. Paso 15: Actualizar la aplicación
 
 Cuando quieras desplegar una nueva versión:
@@ -440,6 +830,8 @@ cd ~/company-ops-control
 git pull
 docker compose -f docker-compose.prod.yml up -d --build
 ```
+
+Si el cambio solo afecta frontend o backend, preferir rebuild parcial en una VM de `1 GB`.
 
 Validar después:
 - login,
@@ -468,7 +860,6 @@ Antes de considerarlo productivo:
 
 Para hacer este deploy prolijo, el repo debería tener además:
 
-- script de backup
 - monitoreo básico de contenedores
 
 El repo ya tiene:
@@ -476,16 +867,18 @@ El repo ya tiene:
 - `Caddyfile`
 - `WhiteNoise` para estáticos Django
 - `gunicorn` para backend productivo
+- `scripts/backup_db_prod.sh`
+- `scripts/backup_db_prod_to_s3.sh`
 
 Todavía conviene agregar:
-- script de backup reutilizable
+- alertas sobre fallos del cron de backup
 - endurecimiento adicional de auth cuando se migre a Cognito
 
 ## 22. Siguiente iteración recomendada
 
 Antes de ejecutar el deploy real en Lightsail, conviene cerrar estos puntos en el repo:
 
-1. agregar script de backup,
-2. probar restore de backup,
+1. probar restore de backup,
+2. configurar cron + S3 para backups automáticos,
 3. definir estrategia final de secretos,
 4. migrar auth a Cognito cuando el deploy base esté estable.

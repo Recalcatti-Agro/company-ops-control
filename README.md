@@ -60,6 +60,7 @@ Aplicación web para administrar operaciones de una empresa con marca parametriz
 - `docker-compose.prod.yml` -> stack de producción para Lightsail
 - `Caddyfile` -> reverse proxy y TLS automático
 - `scripts/backup_db_prod.sh` -> backup lógico simple de PostgreSQL en producción
+- `scripts/backup_db_prod_to_s3.sh` -> backup lógico + subida a S3
 - `docs/BASE_DE_DATOS.md` -> esquema de base de datos (tablas, relaciones y reglas)
 - `docs/FLUJO_CAJA_Y_TRABAJOS.md` -> flujo operativo detallado
 - `docs/ARQUITECTURA_AWS.md` -> arquitectura target en AWS + Cognito
