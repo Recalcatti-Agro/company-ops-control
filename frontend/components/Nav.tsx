@@ -14,6 +14,7 @@ const links: Array<{ href: string; label: string; mobileOnly?: boolean }> = [
   { href: "/commitments", label: "Cuentas a pagar" },
   { href: "/expenses", label: "Gastos" },
   { href: "/expenses/quick", label: "Gasto rápido", mobileOnly: true },
+  { href: "/works/quick", label: "Trabajo rápido", mobileOnly: true },
   { href: "/works", label: "Trabajos" },
   { href: "/work-participations", label: "Distribuciones" },
   { href: "/reinvestments", label: "Caja" },
@@ -78,7 +79,9 @@ export default function Nav() {
   return (
     <header className="nav">
       <div className="nav-inner">
-        <strong>{COMPANY_NAME}</strong>
+        <Link href="/home" style={{ textDecoration: "none", color: "inherit" }}>
+          <strong>{COMPANY_NAME}</strong>
+        </Link>
         <div className="nav-right">
           <label className="theme-switch" title="Cambiar tema">
             <input

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -362,9 +363,12 @@ export default function WorksPage() {
       {error ? <p style={{ color: "#b42318", margin: "0 0 10px" }}>{error}</p> : null}
 
       <div className="row" style={{ marginBottom: 12 }}>
-        <button className="btn btn-secondary" type="button" onClick={() => setShowForm((prev) => !prev)}>
+        <button className="btn btn-secondary hide-on-mobile" type="button" onClick={() => setShowForm((prev) => !prev)}>
           {showForm ? "Cerrar diálogo" : "Nuevo trabajo"}
         </button>
+        <Link href="/works/quick" className="btn btn-secondary show-on-mobile">
+          Nuevo trabajo
+        </Link>
         <button
           className="btn btn-secondary"
           type="button"

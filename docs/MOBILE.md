@@ -50,6 +50,36 @@ Desde la pantalla de gastos en mobile, el botón **Nuevo gasto** redirige a esta
 
 ---
 
+## Trabajo rápido — `/works/quick`
+
+Pantalla mobile-first para registrar un trabajo en pocos pasos.
+
+### Campos siempre visibles
+
+| Campo | Comportamiento |
+|---|---|
+| Fecha inicio | Input date, por defecto hoy |
+| Tipo de trabajo | Texto libre, obligatorio |
+| Cliente | Selector de clientes existentes, obligatorio |
+
+Un toggle debajo del selector permite cambiar a modo "Nuevo cliente" (input texto libre). Al guardar, si el nombre coincide con un cliente existente se reutiliza; si no, se crea automáticamente.
+
+El botón **Agregar** permanece deshabilitado hasta que tipo de trabajo y cliente estén completos.
+
+Al guardar exitosamente, tipo de trabajo y cliente se limpian y queda listo para el siguiente registro.
+
+### Campos opcionales (`▼ Más campos`)
+
+- **Fecha fin**: fecha de fin del trabajo
+- **Hectáreas**: input decimal
+- **Aclaraciones**: texto libre
+
+### Navegación
+
+Desde la pantalla de trabajos en mobile, el botón **Nuevo trabajo** redirige a esta pantalla. En desktop el comportamiento es el de siempre (modal en la misma pantalla).
+
+---
+
 ## Listado de gastos — `/expenses`
 
 ### Layout según dispositivo
@@ -110,6 +140,6 @@ En mobile el botón **Nuevo gasto** redirige a `/expenses/quick` en lugar de mos
 | `.nav-hamburger` | Botón hamburger del nav, solo mobile |
 | `.qe-amount-wrap` | Wrapper del input de monto con prefijo ARS |
 | `.qe-prefix` | Badge `ARS $` del input de monto |
-| `.qe-extra-toggle` | Botón `▼ Más campos` del gasto rápido |
+| `.qe-extra-toggle` | Botón `▼ Más campos` / toggles discretos en pantallas quick |
 
 El breakpoint mobile es `640px`, definido en `frontend/app/globals.css`.
