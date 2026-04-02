@@ -55,6 +55,7 @@ export default function CashPage() {
 
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]["value"]>("CAPITAL_CONTRIBUTION");
+  const [adjustmentDirection, setAdjustmentDirection] = useState<CashMovement["direction"]>("OUT");
   const [investor, setInvestor] = useState<number | "">("");
   const [expense, setExpense] = useState<number | "">("");
   const [currency, setCurrency] = useState<"USD" | "ARS">("ARS");
@@ -67,6 +68,7 @@ export default function CashPage() {
   const [showForm, setShowForm] = useState(false);
 
   const currentCategory = CATEGORIES.find((c) => c.value === category) || CATEGORIES[0];
+  const currentDirection = category === "ADJUSTMENT" ? adjustmentDirection : currentCategory.direction;
 
   const load = async () => {
     const [investorsData, expensesData, rowsData] = await Promise.all([
@@ -99,6 +101,7 @@ export default function CashPage() {
     setEditingId(null);
     setDate(new Date().toISOString().slice(0, 10));
     setCategory("CAPITAL_CONTRIBUTION");
+    setAdjustmentDirection("OUT");
     setInvestor("");
     setExpense("");
     setCurrency("ARS");
@@ -169,7 +172,7 @@ export default function CashPage() {
 
     const payload = {
       date,
-      direction: currentCategory.direction,
+      direction: currentDirection,
       category,
       currency,
       amount_original: amountOriginal,
@@ -198,6 +201,7 @@ export default function CashPage() {
     setEditingId(row.id);
     setDate(row.date);
     setCategory(row.category as (typeof CATEGORIES)[number]["value"]);
+    setAdjustmentDirection(row.direction);
     setInvestor(row.investor ?? "");
     setExpense(row.expense ?? "");
     setCurrency(row.currency || "USD");
@@ -251,6 +255,15 @@ export default function CashPage() {
                 </option>
               ))}
             </select>
+            {category === "ADJUSTMENT" ? (
+              <select
+                value={adjustmentDirection}
+                onChange={(e) => setAdjustmentDirection(e.target.value as CashMovement["direction"])}
+              >
+                <option value="OUT">Egreso</option>
+                <option value="IN">Ingreso</option>
+              </select>
+            ) : null}
             {currentCategory.requiresInvestor ? (
               <select value={investor} onChange={(e) => setInvestor(e.target.value ? Number(e.target.value) : "")} required>
                 <option value="">Seleccionar inversor</option>
