@@ -81,7 +81,7 @@ Precedencia recomendada:
 - `Caddyfile` -> reverse proxy y TLS automático
 - `scripts/backup_db_prod.sh` -> backup lógico simple de PostgreSQL en producción
 - `scripts/backup_db_prod_to_s3.sh` -> backup lógico + subida a S3
-- `docs/RUNBOOK_PRODUCCION.md` -> comandos operativos reales de producción
+- `docs/RUNBOOK_PRODUCCION.md` -> comandos operativos reales de producción + deploy remoto desde Codex/local
 - `docs/BASE_DE_DATOS.md` -> esquema de base de datos (tablas, relaciones y reglas)
 - `docs/FLUJO_CAJA_Y_TRABAJOS.md` -> flujo operativo detallado
 - `docs/DESPLIEGUE_AWS_LIGHTSAIL.md` -> guía operativa recomendada para deploy simple en Lightsail

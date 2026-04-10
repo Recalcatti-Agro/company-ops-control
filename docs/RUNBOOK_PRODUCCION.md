@@ -15,6 +15,92 @@ Suposiciones:
 - variables reales definidas en `/home/ubuntu/company-ops-control/.env`
 - se ejecuta todo desde la instancia productiva
 
+## 0. Deploy remoto desde esta máquina / Codex
+
+Además del flujo "entrar al servidor y correr comandos ahí", este proyecto también se puede desplegar
+remotamente desde una terminal local o desde Codex usando `ssh`.
+
+Requisitos:
+- tener la clave SSH con acceso a la instancia
+- conocer la IP pública o el host SSH de producción
+- que el commit a desplegar ya esté pusheado a GitHub
+- que el repo remoto esté clonado en `/home/ubuntu/company-ops-control`
+
+Chequeos previos que conviene hacer:
+
+```bash
+ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new ubuntu@TU_IP 'cd ~/company-ops-control && git status --short && git branch --show-current && git log --oneline -1'
+ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new ubuntu@TU_IP 'cd ~/company-ops-control && docker compose -f docker-compose.prod.yml ps'
+```
+
+Si el `git status --short` remoto devuelve algo, frenar y revisar antes de hacer `git pull`.
+
+### Flujo remoto que sigo yo
+
+1. Confirmar que el cambio ya está en GitHub.
+2. Entrar por `ssh` y verificar que el repo remoto esté limpio y en la rama esperada.
+3. Ejecutar `git pull --ff-only` para evitar merges accidentales en producción.
+4. Elegir deploy parcial o completo según el alcance del cambio.
+5. Verificar commit activo, estado del contenedor afectado y logs de arranque.
+
+### Actualizar código remotamente
+
+```bash
+ssh -i ~/.ssh/id_ed25519 ubuntu@TU_IP 'cd ~/company-ops-control && git pull --ff-only'
+```
+
+### Deploy remoto solo frontend
+
+Usar cuando el cambio afecta únicamente Next.js / `frontend`.
+
+```bash
+ssh -i ~/.ssh/id_ed25519 ubuntu@TU_IP 'cd ~/company-ops-control && docker compose -f docker-compose.prod.yml build frontend && docker compose -f docker-compose.prod.yml up -d frontend'
+```
+
+Validación:
+
+```bash
+ssh -i ~/.ssh/id_ed25519 ubuntu@TU_IP 'cd ~/company-ops-control && git rev-parse --short HEAD && git log --oneline -1'
+ssh -i ~/.ssh/id_ed25519 ubuntu@TU_IP 'cd ~/company-ops-control && docker compose -f docker-compose.prod.yml ps frontend'
+ssh -i ~/.ssh/id_ed25519 ubuntu@TU_IP 'cd ~/company-ops-control && docker compose -f docker-compose.prod.yml logs --tail=40 frontend'
+```
+
+### Deploy remoto solo backend
+
+Usar cuando el cambio afecta únicamente Django / `backend`.
+
+```bash
+ssh -i ~/.ssh/id_ed25519 ubuntu@TU_IP 'cd ~/company-ops-control && docker compose -f docker-compose.prod.yml build web && docker compose -f docker-compose.prod.yml up -d web'
+```
+
+Validación:
+
+```bash
+ssh -i ~/.ssh/id_ed25519 ubuntu@TU_IP 'cd ~/company-ops-control && docker compose -f docker-compose.prod.yml ps web'
+ssh -i ~/.ssh/id_ed25519 ubuntu@TU_IP 'cd ~/company-ops-control && docker compose -f docker-compose.prod.yml logs --tail=40 web'
+```
+
+### Deploy remoto completo
+
+Usar si cambiaron frontend y backend, o si el alcance del cambio no está claro.
+
+```bash
+ssh -i ~/.ssh/id_ed25519 ubuntu@TU_IP 'cd ~/company-ops-control && docker compose -f docker-compose.prod.yml up -d --build'
+```
+
+Validación:
+
+```bash
+ssh -i ~/.ssh/id_ed25519 ubuntu@TU_IP 'cd ~/company-ops-control && docker compose -f docker-compose.prod.yml ps'
+ssh -i ~/.ssh/id_ed25519 ubuntu@TU_IP 'cd ~/company-ops-control && docker compose -f docker-compose.prod.yml logs --tail=40'
+```
+
+Notas operativas:
+- en esta VM de `1 GB`, preferir deploy parcial siempre que sea posible
+- si el cambio fue solo frontend, no hace falta rebuild de `web`
+- después del deploy puede hacer falta `hard refresh` en el navegador para ver assets nuevos
+- no usar `git pull` si el repo remoto tiene cambios locales no versionados o modificaciones manuales
+
 ## 1. Entrar al servidor
 
 ```bash
