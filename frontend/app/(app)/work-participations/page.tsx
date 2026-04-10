@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiFetch, getToken } from "@/lib/api";
@@ -11,6 +11,7 @@ type JobCollection = {
   id: number;
   job: number | null;
   jobs: number[];
+  parent_collection: number | null;
   collection_date: string;
   amount_ars: string;
   fx_ars_usd: string;
@@ -22,6 +23,9 @@ type JobCollection = {
   collected_amount_usd: string | null;
   tax_loss_usd: string;
   status: "BILLED" | "COLLECTED";
+  remaining_amount_usd: string;
+  remaining_amount_ars: string;
+  has_open_balance: boolean;
 };
 type Distribution = {
   id: number;
@@ -52,13 +56,8 @@ type DistributionPreview = {
     total_amount_usd: number;
   }[];
 };
-type FxQuote = {
-  requested_date: string;
-  rate_date: string;
-  ars_per_usd: number;
-  usd_per_ars: number;
-  source: string;
-};
+type CollectionDisplayStatus = "BILLED" | "PARTIAL" | "COLLECTED";
+type CollectingMode = "PARTIAL" | "FULL";
 
 export default function WorkParticipationsPage() {
   const router = useRouter();
@@ -75,7 +74,7 @@ export default function WorkParticipationsPage() {
 
   const [search, setSearch] = useState("");
   const [expandedCollections, setExpandedCollections] = useState<number[]>([]);
-  const [collectionStatusFilter, setCollectionStatusFilter] = useState<"ALL" | "BILLED" | "COLLECTED">("ALL");
+  const [collectionStatusFilter, setCollectionStatusFilter] = useState<"ALL" | CollectionDisplayStatus>("ALL");
   const [collectionClientFilter, setCollectionClientFilter] = useState<string>("ALL");
 
   const [editingCollectionId, setEditingCollectionId] = useState<number | null>(null);
@@ -87,11 +86,10 @@ export default function WorkParticipationsPage() {
 
   const [collectingCollectionId, setCollectingCollectionId] = useState<number | null>(null);
   const [collectingDate, setCollectingDate] = useState(new Date().toISOString().slice(0, 10));
-  const [collectingCurrency, setCollectingCurrency] = useState<"USD" | "ARS">("ARS");
+  const [collectingMode, setCollectingMode] = useState<CollectingMode>("FULL");
+  const [collectingCompleteAsTax, setCollectingCompleteAsTax] = useState(false);
   const [collectingAmountInput, setCollectingAmountInput] = useState("");
   const [collectingFxArsUsd, setCollectingFxArsUsd] = useState("");
-  const [collectingConvertedToUsd, setCollectingConvertedToUsd] = useState(true);
-  const [collectingFxQuote, setCollectingFxQuote] = useState<FxQuote | null>(null);
   const [activeCollectionActionId, setActiveCollectionActionId] = useState<number | null>(null);
 
   const load = async () => {
@@ -163,6 +161,56 @@ export default function WorkParticipationsPage() {
     [collections, jobById, formatNumber]
   );
 
+  const invoiceRows = useMemo(() => {
+    const baseCollections = collections.filter((c) => !c.parent_collection);
+
+    return baseCollections
+      .map((invoice) => {
+        const relatedPayments = [...collections.filter((c) => c.parent_collection === invoice.id)].sort((a, b) =>
+          a.collection_date === b.collection_date ? b.id - a.id : b.collection_date.localeCompare(a.collection_date)
+        );
+        const paymentRows = relatedPayments.length ? relatedPayments : invoice.status === "COLLECTED" ? [invoice] : [];
+        const invoiceAmountArs = Number(invoice.amount_ars || 0);
+        const invoiceAmountUsd = Number(invoice.amount_usd || 0);
+        const collectedTotalUsd = paymentRows.reduce((acc, payment) => acc + Number(payment.collected_amount_usd || 0), 0);
+        const remainingAmountArs = Number(invoice.remaining_amount_ars || 0);
+        const remainingAmountUsd = Number(invoice.remaining_amount_usd || 0);
+        const taxTotalUsd = paymentRows.reduce((acc, payment) => acc + Number(payment.tax_loss_usd || 0), 0);
+
+        let displayStatus: CollectionDisplayStatus = "BILLED";
+        if (invoice.status === "COLLECTED" || (paymentRows.length > 0 && remainingAmountUsd <= 0)) {
+          displayStatus = "COLLECTED";
+        } else if (paymentRows.length > 0) {
+          displayStatus = "PARTIAL";
+        }
+
+        return {
+          invoice,
+          paymentRows,
+          jobsLabel: getCollectionJobsLabel(invoice),
+          clientsLabel: getCollectionClientsLabel(invoice),
+          invoiceAmountArs,
+          invoiceAmountUsd,
+          collectedTotalUsd,
+          remainingAmountArs,
+          remainingAmountUsd,
+          taxTotalUsd,
+          displayStatus,
+          canCollect: remainingAmountUsd > 0,
+        };
+      })
+      .sort((a, b) =>
+        a.invoice.collection_date === b.invoice.collection_date
+          ? b.invoice.id - a.invoice.id
+          : b.invoice.collection_date.localeCompare(a.invoice.collection_date)
+      )
+      .filter((row) => {
+        const statusOk = collectionStatusFilter === "ALL" || row.displayStatus === collectionStatusFilter;
+        const clientOk = collectionClientFilter === "ALL" || row.clientsLabel === collectionClientFilter;
+        return statusOk && clientOk;
+      });
+  }, [collections, collectionStatusFilter, collectionClientFilter, jobById]);
+
   const onDelete = async (id: number) => {
     setError("");
     try {
@@ -231,50 +279,60 @@ export default function WorkParticipationsPage() {
   const onStartCollecting = (c: JobCollection) => {
     setCollectingCollectionId(c.id);
     setCollectingDate(new Date().toISOString().slice(0, 10));
-    setCollectingCurrency("ARS");
-    setCollectingAmountInput(Number(c.amount_usd || 0).toFixed(2));
+    setCollectingMode("FULL");
+    setCollectingCompleteAsTax(false);
+    setCollectingAmountInput("");
     setCollectingFxArsUsd(c.fx_ars_usd || "");
-    setCollectingConvertedToUsd(c.converted_to_usd ?? true);
   };
 
   useEffect(() => {
     if (!collectingCollectionId) return;
-    apiFetch<FxQuote>(`/fx/ars-usd/?date=${collectingDate}`)
+    apiFetch<{ ars_per_usd: number }>(`/fx/ars-usd/?date=${collectingDate}`)
       .then((quote) => {
-        setCollectingFxQuote(quote);
-        if (collectingCurrency === "ARS") setCollectingFxArsUsd(quote.ars_per_usd.toFixed(4));
+        setCollectingFxArsUsd(quote.ars_per_usd.toFixed(4));
       })
       .catch(() => setError("No se pudo obtener tipo de cambio para la fecha de cobro"));
-  }, [collectingCollectionId, collectingDate, collectingCurrency]);
+  }, [collectingCollectionId, collectingDate]);
 
   const collectingAmountUsd = useMemo(() => {
     const amount = parseLooseNumber(collectingAmountInput);
     if (!Number.isFinite(amount)) return 0;
-    if (collectingCurrency === "USD") return amount;
     const fx = Number(collectingFxArsUsd || 0);
     if (!Number.isFinite(fx) || fx <= 0) return 0;
     return amount / fx;
-  }, [collectingAmountInput, collectingCurrency, collectingFxArsUsd]);
+  }, [collectingAmountInput, collectingFxArsUsd]);
+
+  useEffect(() => {
+    if (!collectingCollectionId || collectingMode !== "FULL" || collectingCompleteAsTax) return;
+    const collection = collections.find((item) => item.id === collectingCollectionId);
+    if (!collection) return;
+    const remainingUsd = Number(collection.remaining_amount_usd || 0);
+    const fx = parseLooseNumber(collectingFxArsUsd);
+    if (!Number.isFinite(fx) || fx <= 0) {
+      setCollectingAmountInput("");
+      return;
+    }
+    setCollectingAmountInput((remainingUsd * fx).toFixed(2));
+  }, [collectingCollectionId, collectingMode, collectingFxArsUsd, collections, collectingCompleteAsTax]);
 
   const onConfirmCollected = async () => {
     if (!collectingCollectionId) return;
     const c = collections.find((item) => item.id === collectingCollectionId);
     if (!c) return;
 
-    const billedUsd = Number(c.amount_usd || 0);
-    const billedArs = Number(c.amount_ars || 0);
+    const remainingUsd = Number(c.remaining_amount_usd || 0);
     const collectedOriginal = parseLooseNumber(collectingAmountInput);
     const collected = Number(collectingAmountUsd || 0);
     if (!collected || collected <= 0) {
       setError("Ingresá un monto cobrado válido.");
       return;
     }
-    if (collectingCurrency === "USD" && collected > billedUsd) {
-      setError("El monto cobrado no puede superar el facturado.");
+    if (collected > remainingUsd + 0.01) {
+      setError("El monto cobrado no puede superar el saldo pendiente.");
       return;
     }
-    if (collectingCurrency === "ARS" && collectedOriginal > billedArs) {
-      setError("El monto cobrado en ARS no puede superar el facturado.");
+    if (collectingMode === "FULL" && !collectingCompleteAsTax && Math.abs(collected - remainingUsd) > 0.01) {
+      setError("Para saldar sin impuestos, el monto debe coincidir con el saldo pendiente.");
       return;
     }
 
@@ -284,18 +342,19 @@ export default function WorkParticipationsPage() {
         method: "POST",
         body: JSON.stringify({
           collected_amount_usd: collected.toFixed(2),
-          collected_currency: collectingCurrency,
+          collected_currency: "ARS",
           collected_amount_original: collectedOriginal.toFixed(2),
-          collected_fx_ars_usd: collectingCurrency === "ARS" ? collectingFxArsUsd : null,
-          converted_to_usd: collectingConvertedToUsd,
+          collected_fx_ars_usd: collectingFxArsUsd,
+          converted_to_usd: false,
+          close_remaining: collectingMode === "FULL",
           collection_date: collectingDate,
         }),
       });
       setCollectingCollectionId(null);
+      setCollectingMode("FULL");
+      setCollectingCompleteAsTax(false);
       setCollectingAmountInput("");
-      setCollectingFxQuote(null);
       setCollectingFxArsUsd("");
-      setCollectingConvertedToUsd(true);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo marcar como cobrado");
@@ -432,20 +491,9 @@ export default function WorkParticipationsPage() {
     setExpandedCollections((prev) => (prev.includes(collectionId) ? prev.filter((id) => id !== collectionId) : [...prev, collectionId]));
   };
 
-  const visibleCollections = useMemo(() => {
-    return [...collections]
-      .sort((a, b) => (a.collection_date === b.collection_date ? b.id - a.id : b.collection_date.localeCompare(a.collection_date)))
-      .filter((c) => {
-        const statusOk = collectionStatusFilter === "ALL" || c.status === collectionStatusFilter;
-        const clientLabel = getCollectionClientsLabel(c);
-        const clientOk = collectionClientFilter === "ALL" || clientLabel === collectionClientFilter;
-        return statusOk && clientOk;
-      });
-  }, [collections, collectionStatusFilter, collectionClientFilter, jobById]);
-
   const collectionClientOptions = useMemo(() => {
     const unique = new Set<string>();
-    for (const c of collections) {
+    for (const c of collections.filter((item) => !item.parent_collection)) {
       const label = getCollectionClientsLabel(c);
       if (label && label !== "-") unique.add(label);
     }
@@ -453,34 +501,28 @@ export default function WorkParticipationsPage() {
   }, [collections, jobs]);
 
   const collectionTotals = useMemo(() => {
-    let billedArs = 0;
-    let billedUsd = 0;
+    let invoiceArs = 0;
+    let invoiceUsd = 0;
     let collectedUsd = 0;
+    let remainingUsd = 0;
     let taxUsd = 0;
-    let collectedOriginalArs = 0;
-    let collectedOriginalUsd = 0;
 
-    for (const c of visibleCollections) {
-      billedArs += Number(c.amount_ars || 0);
-      billedUsd += Number(c.amount_usd || 0);
-      collectedUsd += Number(c.collected_amount_usd || 0);
-      taxUsd += Number(c.tax_loss_usd || 0);
-
-      if (c.collected_amount_original) {
-        if (c.collected_currency === "ARS") collectedOriginalArs += Number(c.collected_amount_original);
-        if (c.collected_currency === "USD") collectedOriginalUsd += Number(c.collected_amount_original);
-      }
+    for (const row of invoiceRows) {
+      invoiceArs += row.invoiceAmountArs;
+      invoiceUsd += row.invoiceAmountUsd;
+      collectedUsd += row.collectedTotalUsd;
+      remainingUsd += row.remainingAmountUsd;
+      taxUsd += row.taxTotalUsd;
     }
 
     return {
-      billedArs,
-      billedUsd,
+      invoiceArs,
+      invoiceUsd,
       collectedUsd,
+      remainingUsd,
       taxUsd,
-      collectedOriginalArs,
-      collectedOriginalUsd,
     };
-  }, [visibleCollections]);
+  }, [invoiceRows]);
 
   return (
     <div className="grid" style={{ gap: 16 }}>
@@ -508,15 +550,16 @@ export default function WorkParticipationsPage() {
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <span className="small">Estado:</span>
             {[
-              { value: "ALL", label: "Todos" },
-              { value: "BILLED", label: "Facturado" },
-              { value: "COLLECTED", label: "Cobrado" },
+              { value: "ALL", label: "Todos", cls: "status-active" },
+              { value: "BILLED", label: "Facturado", cls: "status-billed" },
+              { value: "PARTIAL", label: "C Parcial", cls: "status-partial" },
+              { value: "COLLECTED", label: "Cobrado", cls: "status-collected" },
             ].map((opt) => (
               <button
                 key={opt.value}
                 type="button"
-                className={`chip-label ${collectionStatusFilter === opt.value ? "chip-status status-completed" : ""}`}
-                onClick={() => setCollectionStatusFilter(opt.value as "ALL" | "BILLED" | "COLLECTED")}
+                className={`chip-label ${collectionStatusFilter === opt.value ? `chip-status ${opt.cls}` : ""}`}
+                onClick={() => setCollectionStatusFilter(opt.value as "ALL" | CollectionDisplayStatus)}
                 style={{ cursor: "pointer", border: "1px solid var(--line)" }}
               >
                 {opt.label}
@@ -549,100 +592,161 @@ export default function WorkParticipationsPage() {
           </button>
 
           <span className="small" style={{ marginLeft: "auto" }}>
-            {visibleCollections.length} resultados
+            {invoiceRows.length} resultados
           </span>
         </div>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Fecha</th>
+                <th>Fecha fact.</th>
                 <th>Trabajos</th>
                 <th>Cliente</th>
-                <th>Estado cobro</th>
-                <th>ARS</th>
-                <th>USD facturado</th>
-                <th>Cobro orig.</th>
+                <th>Estado</th>
+                <th>ARS factura</th>
+                <th>USD factura</th>
                 <th>USD cobrado</th>
+                <th>USD resta</th>
                 <th>USD impuestos</th>
-                <th>Conv. USD</th>
+                <th>Cobros</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {visibleCollections.map((c) => (
-                <tr
-                  key={c.id}
-                  className="row-clickable"
-                  onClick={() => setActiveCollectionActionId((prev) => (prev === c.id ? null : c.id))}
-                >
-                  <td>{c.collection_date}</td>
-                  <td>{getCollectionJobsLabel(c)}</td>
-                  <td>{getCollectionClientsLabel(c)}</td>
-                  <td>
-                    <span className={`chip-label chip-status ${c.status === "COLLECTED" ? "status-collected" : "status-billed"}`}>
-                      {c.status === "COLLECTED" ? "Cobrado" : "Facturado"}
-                    </span>
-                  </td>
-                  <td>{formatNumber(Number(c.amount_ars || 0))}</td>
-                  <td>{formatNumber(Number(c.amount_usd || 0))}</td>
-                  <td>{c.collected_amount_original ? `${c.collected_currency || ""} ${formatNumber(Number(c.collected_amount_original))}` : "-"}</td>
-                  <td>{c.collected_amount_usd ? formatNumber(Number(c.collected_amount_usd)) : "-"}</td>
-                  <td>{formatNumber(Number(c.tax_loss_usd || 0))}</td>
-                  <td>{c.status === "COLLECTED" ? (c.converted_to_usd ? "Sí" : "No") : "-"}</td>
-                  <td>
-                    <div style={{ display: "grid", justifyItems: "end", gap: 8 }} onClick={(e) => e.stopPropagation()}>
-                      {activeCollectionActionId === c.id ? (
-                        <div
-                          style={{
-                            display: "grid",
-                            gap: 6,
-                            width: "100%",
-                            minWidth: 180,
-                          }}
-                        >
-                          {c.status === "COLLECTED" ? (
-                            <button className="btn btn-secondary" type="button" onClick={() => onStartDistribution(c.id)}>
-                              Distribuir
-                            </button>
-                          ) : (
-                            <button className="btn btn-secondary" type="button" onClick={() => onStartCollecting(c)}>
-                              Cobrar
-                            </button>
-                          )}
-                          <button className="btn btn-secondary" type="button" onClick={() => onStartEditCollection(c)}>
-                            Editar
-                          </button>
-                          <button className="btn btn-secondary" type="button" onClick={() => onDeleteCollection(c.id)}>
-                            Eliminar
+              {invoiceRows.map((row) => {
+                const isOpen = activeCollectionActionId === row.invoice.id;
+                const statusClass =
+                  row.displayStatus === "COLLECTED"
+                    ? "status-collected"
+                    : row.displayStatus === "PARTIAL"
+                      ? "status-partial"
+                      : "status-billed";
+                const statusLabel =
+                  row.displayStatus === "COLLECTED"
+                    ? "Cobrado"
+                    : row.displayStatus === "PARTIAL"
+                      ? "C Parcial"
+                      : "Facturado";
+
+                return (
+                  <Fragment key={row.invoice.id}>
+                    <tr
+                      className="row-clickable"
+                      onClick={() => setActiveCollectionActionId((prev) => (prev === row.invoice.id ? null : row.invoice.id))}
+                    >
+                      <td>{row.invoice.collection_date}</td>
+                      <td>{row.jobsLabel}</td>
+                      <td>{row.clientsLabel}</td>
+                      <td>
+                        <span className={`chip-label chip-status ${statusClass}`}>{statusLabel}</span>
+                      </td>
+                      <td>{formatNumber(row.invoiceAmountArs)}</td>
+                      <td>{formatNumber(row.invoiceAmountUsd)}</td>
+                      <td>{formatNumber(row.collectedTotalUsd)}</td>
+                      <td>{formatNumber(row.remainingAmountUsd)}</td>
+                      <td>{formatNumber(row.taxTotalUsd)}</td>
+                      <td>{row.paymentRows.length}</td>
+                      <td>
+                        <div className="row" style={{ justifyContent: "flex-end" }} onClick={(e) => e.stopPropagation()}>
+                          <button className="btn btn-secondary" type="button" onClick={() => setActiveCollectionActionId((prev) => (prev === row.invoice.id ? null : row.invoice.id))}>
+                            {isOpen ? "Ocultar" : "Ver"}
                           </button>
                         </div>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!visibleCollections.length ? (
+                      </td>
+                    </tr>
+                    {isOpen ? (
+                      <tr>
+                        <td colSpan={11} style={{ background: "var(--surface)" }}>
+                          <div style={{ display: "grid", gap: 12, padding: "6px 0" }}>
+                            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                              <span className={`chip-label chip-status ${statusClass}`}>{statusLabel}</span>
+                              <span className="chip-label">Factura USD {formatNumber(row.invoiceAmountUsd)}</span>
+                              <span className="chip-label">Cobrado USD {formatNumber(row.collectedTotalUsd)}</span>
+                              <span className="chip-label">Resta USD {formatNumber(row.remainingAmountUsd)}</span>
+                              <span className="chip-label">Cobros rel. {row.paymentRows.length}</span>
+                            </div>
+
+                            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                              {row.canCollect ? (
+                                <button className="btn btn-secondary" type="button" onClick={() => onStartCollecting(row.invoice)}>
+                                  Registrar cobro
+                                </button>
+                              ) : null}
+                              <button className="btn btn-secondary" type="button" onClick={() => onStartEditCollection(row.invoice)}>
+                                Editar factura
+                              </button>
+                              <button className="btn btn-secondary" type="button" onClick={() => onDeleteCollection(row.invoice.id)}>
+                                Eliminar factura
+                              </button>
+                            </div>
+
+                            {row.paymentRows.length ? (
+                              <div className="table-wrap">
+                                <table>
+                                  <thead>
+                                    <tr>
+                                      <th>Fecha cobro</th>
+                                      <th>Cobro ARS</th>
+                                      <th>USD cobrado</th>
+                                      <th>USD impuestos</th>
+                                      <th></th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {row.paymentRows.map((payment) => (
+                                      <tr key={payment.id}>
+                                        <td>{payment.collection_date}</td>
+                                        <td>
+                                          {payment.collected_amount_original ? `$ ${formatNumber(Number(payment.collected_amount_original))}` : "-"}
+                                        </td>
+                                        <td>{payment.collected_amount_usd ? formatNumber(Number(payment.collected_amount_usd)) : "-"}</td>
+                                        <td>{formatNumber(Number(payment.tax_loss_usd || 0))}</td>
+                                        <td>
+                                          <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
+                                            <button className="btn btn-secondary" type="button" onClick={() => onStartDistribution(payment.id)}>
+                                              Distribuir
+                                            </button>
+                                            <button className="btn btn-secondary" type="button" onClick={() => onStartEditCollection(payment)}>
+                                              Editar
+                                            </button>
+                                            <button className="btn btn-secondary" type="button" onClick={() => onDeleteCollection(payment.id)}>
+                                              Eliminar
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <div className="small" style={{ color: "var(--muted)" }}>
+                                No hay cobros relacionados todavía.
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
+              {!invoiceRows.length ? (
                 <tr>
                   <td colSpan={11} style={{ textAlign: "center", color: "var(--muted)" }}>
-                    No hay cobros para mostrar
+                    No hay facturas para mostrar
                   </td>
                 </tr>
               ) : null}
             </tbody>
-            {visibleCollections.length ? (
+            {invoiceRows.length ? (
               <tfoot>
                 <tr>
                   <td colSpan={4} style={{ fontWeight: 700 }}>Totales</td>
-                  <td style={{ fontWeight: 700 }}>{formatNumber(collectionTotals.billedArs)}</td>
-                  <td style={{ fontWeight: 700 }}>{formatNumber(collectionTotals.billedUsd)}</td>
-                  <td style={{ fontWeight: 700 }}>
-                    {collectionTotals.collectedOriginalArs > 0 ? `$${formatNumber(collectionTotals.collectedOriginalArs)}` : ""}
-                    {collectionTotals.collectedOriginalArs > 0 && collectionTotals.collectedOriginalUsd > 0 ? " · " : ""}
-                    {collectionTotals.collectedOriginalUsd > 0 ? `U$S ${formatNumber(collectionTotals.collectedOriginalUsd)}` : ""}
-                    {collectionTotals.collectedOriginalArs <= 0 && collectionTotals.collectedOriginalUsd <= 0 ? "-" : ""}
-                  </td>
+                  <td style={{ fontWeight: 700 }}>{formatNumber(collectionTotals.invoiceArs)}</td>
+                  <td style={{ fontWeight: 700 }}>{formatNumber(collectionTotals.invoiceUsd)}</td>
                   <td style={{ fontWeight: 700 }}>{formatNumber(collectionTotals.collectedUsd)}</td>
+                  <td style={{ fontWeight: 700 }}>{formatNumber(collectionTotals.remainingUsd)}</td>
                   <td style={{ fontWeight: 700 }}>{formatNumber(collectionTotals.taxUsd)}</td>
                   <td />
                   <td />
@@ -782,51 +886,107 @@ export default function WorkParticipationsPage() {
           onClick={() => setCollectingCollectionId(null)}
         >
           <div className="card" style={{ width: "min(560px, 100%)" }} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>Registrar cobro final</h3>
+            <h3 style={{ marginTop: 0 }}>Registrar cobro</h3>
             <p className="small" style={{ marginTop: 0 }}>
-              Si cobrás en ARS, cargá el monto en pesos y el tipo de cambio al que compraste USD.
+              El cobro se registra siempre en pesos. Ingresá el monto cobrado y el tipo de cambio de referencia del día.
             </p>
             <div className="form">
+              <div className="small">
+                {(() => {
+                  const col = collections.find((c) => c.id === collectingCollectionId);
+                  const pendingUsd = Number(col?.remaining_amount_usd || 0);
+                  return `Saldo pendiente: U$S ${pendingUsd.toFixed(2)}`;
+                })()}
+              </div>
+              <div className="small">Tipo de registro</div>
+              <div
+                style={{
+                  display: "grid",
+                  gap: 8,
+                  padding: 10,
+                  border: "1px solid var(--line)",
+                  borderRadius: 12,
+                  background: "var(--surface)",
+                }}
+              >
+                {[
+                  {
+                    value: "PARTIAL" as CollectingMode,
+                    title: "Cobro parcial",
+                    description: "Registrás lo efectivamente cobrado y el resto sigue pendiente.",
+                  },
+                  {
+                    value: "FULL" as CollectingMode,
+                    title: "Cobro saldo restante",
+                    description: "Cerrás la factura. Si cobrás menos, podés completar la diferencia como impuestos.",
+                  },
+                ].map((option) => (
+                  <label key={option.value} style={{ display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="collecting-mode"
+                      checked={collectingMode === option.value}
+                      onChange={() => {
+                        setCollectingMode(option.value);
+                        if (option.value !== "FULL") setCollectingCompleteAsTax(false);
+                      }}
+                      style={{ margin: "2px 0 0", flexShrink: 0 }}
+                    />
+                    <span style={{ display: "grid", gap: 2 }}>
+                      <span style={{ fontWeight: 600, fontSize: 13 }}>{option.title}</span>
+                      <span className="small">{option.description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {collectingMode === "FULL" ? (
+                <label className="small" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={collectingCompleteAsTax}
+                    onChange={(e) => setCollectingCompleteAsTax(e.target.checked)}
+                    style={{ margin: 0 }}
+                  />
+                  Completar diferencia como impuestos
+                </label>
+              ) : null}
               <div className="small">Fecha en que se cobró</div>
               <input type="date" value={collectingDate} onChange={(e) => setCollectingDate(e.target.value)} />
-              <div className="small">Moneda en que recibiste el cobro</div>
-              <select value={collectingCurrency} onChange={(e) => setCollectingCurrency(e.target.value as "USD" | "ARS")}>
-                <option value="USD">USD</option>
-                <option value="ARS">ARS</option>
-              </select>
-              <div className="small">{collectingCurrency === "USD" ? "Monto cobrado en USD" : "Monto cobrado en ARS"}</div>
-              <input value={collectingAmountInput} onChange={(e) => setCollectingAmountInput(e.target.value)} placeholder="Monto cobrado final" />
-              {collectingCurrency === "ARS" ? (
+              <div className="small">
+                {collectingMode === "FULL"
+                  ? collectingCompleteAsTax
+                    ? "Monto cobrado en pesos"
+                    : "Monto para saldar en pesos"
+                  : "Monto cobrado en pesos"}
+              </div>
+              <input
+                value={collectingAmountInput}
+                onChange={(e) => setCollectingAmountInput(e.target.value)}
+                placeholder={collectingMode === "FULL" && !collectingCompleteAsTax ? "Monto calculado automáticamente" : "Monto cobrado"}
+                readOnly={collectingMode === "FULL" && !collectingCompleteAsTax}
+              />
+              <div className="small">Tipo de cambio de referencia ARS/USD</div>
+              <input
+                value={collectingFxArsUsd}
+                onChange={(e) => setCollectingFxArsUsd(e.target.value)}
+                placeholder="TC ARS/USD"
+              />
+              {collectingMode === "FULL" ? (
                 <>
-                  <div className="small">Tipo de cambio ARS/USD para esa fecha (automático, editable)</div>
+                  <div className="small">Impuestos/pérdida a registrar (ARS)</div>
                   <input
-                    value={collectingFxArsUsd}
-                    onChange={(e) => setCollectingFxArsUsd(e.target.value)}
-                    placeholder="TC ARS/USD"
+                    value={(() => {
+                      const col = collections.find((c) => c.id === collectingCollectionId);
+                      const billed = Number(col?.remaining_amount_ars || 0);
+                      const collected = parseLooseNumber(collectingAmountInput);
+                      const tax = collectingCompleteAsTax ? billed - collected : 0;
+                      return Number.isFinite(tax) && tax > 0 ? tax.toFixed(2) : "0.00";
+                    })()}
+                    readOnly
+                    placeholder="ARS impuestos/perdida (auto)"
                   />
                 </>
               ) : null}
-              <label className="small" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={collectingConvertedToUsd}
-                  onChange={(e) => setCollectingConvertedToUsd(e.target.checked)}
-                />
-                Finalmente convertido a USD
-              </label>
-              <div className="small">Monto cobrado equivalente en USD (automático)</div>
-              <input value={collectingAmountUsd ? collectingAmountUsd.toFixed(2) : ""} readOnly placeholder="USD cobrado" />
-              <input
-                value={(() => {
-                  const col = collections.find((c) => c.id === collectingCollectionId);
-                  const billed = Number(col?.amount_usd || 0);
-                  const collected = Number(collectingAmountUsd || 0);
-                  const tax = billed - collected;
-                  return Number.isFinite(tax) && tax > 0 ? tax.toFixed(2) : "0.00";
-                })()}
-                readOnly
-                placeholder="USD impuestos/perdida (auto)"
-              />
             </div>
             <div className="row" style={{ marginTop: 12 }}>
               <button className="btn" type="button" onClick={onConfirmCollected}>

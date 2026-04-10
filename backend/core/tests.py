@@ -1,8 +1,10 @@
 from datetime import date
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 from rest_framework.exceptions import ValidationError as ApiValidationError
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from .api_views import (
     _alloc_by_weights,
@@ -10,11 +12,13 @@ from .api_views import (
     _build_distribution_plan,
     _investor_capital_snapshot,
     _monthly_dashboard_data,
+    JobCollectionViewSet,
     add_months,
     recompute_job_status,
     sync_payment_obligation_status,
     sync_purchase_installments,
 )
+from .collection_utils import collection_remaining_usd
 from .models import (
     CapitalContribution,
     Currency,
@@ -398,12 +402,31 @@ class RecomputeJobStatusTest(TestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, Job.Status.COLLECTED)
 
-    def test_collected_takes_precedence_over_billed(self):
+    def test_open_billed_takes_precedence_over_collected(self):
         job = make_job(status=Job.Status.DONE)
         billed = make_collection(Decimal("50.00"), status=JobCollection.Status.BILLED)
         billed.jobs.add(job)
         collected = make_collection(Decimal("50.00"), status=JobCollection.Status.COLLECTED)
         collected.jobs.add(job)
+
+        recompute_job_status(job)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, Job.Status.INVOICED)
+
+    def test_fully_settled_billed_parent_with_child_collection_sets_collected(self):
+        job = make_job(status=Job.Status.DONE)
+        billed = make_collection(Decimal("50.00"), status=JobCollection.Status.BILLED)
+        billed.jobs.add(job)
+        child = make_collection(
+            Decimal("50.00"),
+            status=JobCollection.Status.COLLECTED,
+            collected_amount_usd=Decimal("50.00"),
+        )
+        child.parent_collection = billed
+        child.job = job
+        child.save(update_fields=["parent_collection", "job"])
+        child.jobs.add(job)
 
         recompute_job_status(job)
 
@@ -695,3 +718,100 @@ class DashboardMonthlyDataTest(TestCase):
         monthly_data = _monthly_dashboard_data()
 
         self.assertEqual(monthly_data, [{"month": "2024-04", "expenses": 0.0, "gains": 0.0, "billed": 140.0}])
+
+    def test_partial_collections_reduce_monthly_billed_to_remaining_balance(self):
+        job = make_job(on_date=date(2024, 4, 12))
+        billed = make_collection(
+            Decimal("140.00"),
+            on_date=date(2024, 5, 3),
+            status=JobCollection.Status.BILLED,
+        )
+        billed.job = job
+        billed.save(update_fields=["job"])
+        billed.jobs.add(job)
+
+        partial = make_collection(
+            Decimal("40.00"),
+            on_date=date(2024, 5, 10),
+            collected_amount_usd=Decimal("40.00"),
+        )
+        partial.parent_collection = billed
+        partial.job = job
+        partial.save(update_fields=["parent_collection", "job"])
+        partial.jobs.add(job)
+
+        monthly_data = _monthly_dashboard_data()
+
+        self.assertEqual(monthly_data, [{"month": "2024-04", "expenses": 0.0, "gains": 40.0, "billed": 100.0}])
+
+
+class JobCollectionMarkCollectedActionTest(TestCase):
+
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = get_user_model().objects.create_user(username="tester", password="secret")
+        self.view = JobCollectionViewSet.as_view({"post": "mark_collected"})
+
+    def test_mark_collected_creates_partial_collection_and_keeps_invoice_open(self):
+        job = make_job(status=Job.Status.INVOICED)
+        billed = make_collection(Decimal("100.00"), status=JobCollection.Status.BILLED)
+        billed.job = job
+        billed.save(update_fields=["job"])
+        billed.jobs.add(job)
+
+        request = self.factory.post(
+            f"/job-collections/{billed.id}/mark-collected/",
+            {
+                "collected_amount_usd": "30.00",
+                "collected_currency": "USD",
+                "collected_amount_original": "30.00",
+                "collection_date": "2024-02-10",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = self.view(request, pk=billed.id)
+
+        self.assertEqual(response.status_code, 200)
+        billed.refresh_from_db()
+        job.refresh_from_db()
+        partials = list(billed.partial_collections.order_by("id"))
+        self.assertEqual(len(partials), 1)
+        self.assertEqual(partials[0].status, JobCollection.Status.COLLECTED)
+        self.assertEqual(partials[0].amount_usd, Decimal("30.00"))
+        self.assertEqual(partials[0].collected_amount_usd, Decimal("30.00"))
+        self.assertEqual(collection_remaining_usd(billed), Decimal("70.00"))
+        self.assertEqual(job.status, Job.Status.INVOICED)
+
+    def test_mark_collected_can_close_remaining_with_tax_difference(self):
+        job = make_job(status=Job.Status.INVOICED)
+        billed = make_collection(Decimal("100.00"), status=JobCollection.Status.BILLED)
+        billed.job = job
+        billed.save(update_fields=["job"])
+        billed.jobs.add(job)
+
+        request = self.factory.post(
+            f"/job-collections/{billed.id}/mark-collected/",
+            {
+                "collected_amount_usd": "95.00",
+                "collected_currency": "USD",
+                "collected_amount_original": "95.00",
+                "close_remaining": True,
+                "collection_date": "2024-02-10",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = self.view(request, pk=billed.id)
+
+        self.assertEqual(response.status_code, 200)
+        billed.refresh_from_db()
+        job.refresh_from_db()
+        partial = billed.partial_collections.get()
+        self.assertEqual(partial.amount_usd, Decimal("100.00"))
+        self.assertEqual(partial.collected_amount_usd, Decimal("95.00"))
+        self.assertEqual(partial.tax_loss_usd, Decimal("5.00"))
+        self.assertEqual(collection_remaining_usd(billed), Decimal("0.00"))
+        self.assertEqual(job.status, Job.Status.COLLECTED)

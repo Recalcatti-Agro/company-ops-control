@@ -4,6 +4,7 @@ from django.contrib.auth import authenticate
 from rest_framework import serializers
 
 from .fx_service import get_ars_per_usd
+from .collection_utils import collection_has_open_balance, collection_remaining_ars, collection_remaining_usd
 from .models import (
     CapitalContribution,
     CashMovement,
@@ -241,6 +242,9 @@ class JobSerializer(serializers.ModelSerializer):
 
 class JobCollectionSerializer(serializers.ModelSerializer):
     jobs = serializers.PrimaryKeyRelatedField(queryset=Job.objects.all(), many=True, required=False)
+    remaining_amount_usd = serializers.SerializerMethodField()
+    remaining_amount_ars = serializers.SerializerMethodField()
+    has_open_balance = serializers.SerializerMethodField()
 
     class Meta:
         model = JobCollection
@@ -258,12 +262,35 @@ class JobCollectionSerializer(serializers.ModelSerializer):
         collected_original = attrs.get("collected_amount_original", getattr(self.instance, "collected_amount_original", None))
         collected_fx = attrs.get("collected_fx_ars_usd", getattr(self.instance, "collected_fx_ars_usd", None))
         converted_to_usd = attrs.get("converted_to_usd", getattr(self.instance, "converted_to_usd", True))
+        parent_collection = attrs.get("parent_collection", getattr(self.instance, "parent_collection", None))
+
+        if parent_collection and not job:
+            job = parent_collection.job
+            attrs["job"] = job
+            has_jobs = True if parent_collection.jobs.exists() or parent_collection.job_id else has_jobs
 
         if not job and not has_jobs:
             raise serializers.ValidationError({"jobs": "El cobro debe tener al menos un trabajo."})
 
+        if parent_collection and parent_collection.parent_collection_id:
+            raise serializers.ValidationError({"parent_collection": "Solo se permite un nivel de cobros parciales."})
+
         if jobs and not job:
             attrs["job"] = jobs[0]
+
+        if parent_collection:
+            if status != JobCollection.Status.COLLECTED:
+                raise serializers.ValidationError({"status": "Los cobros parciales deben quedar en estado Cobrado."})
+            if billed_amount <= Decimal("0"):
+                raise serializers.ValidationError({"amount_usd": "El tramo liquidado debe ser mayor a 0."})
+            available = collection_remaining_usd(
+                parent_collection,
+                exclude_partial_id=self.instance.id if self.instance and self.instance.parent_collection_id == parent_collection.id else None,
+            )
+            if billed_amount > available:
+                raise serializers.ValidationError(
+                    {"amount_usd": f"El tramo liquidado no puede superar el saldo pendiente ({available})."}
+                )
 
         if status == JobCollection.Status.COLLECTED:
             if collected_amount is None:
@@ -317,6 +344,12 @@ class JobCollectionSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         jobs = validated_data.pop("jobs", [])
         instance = super().create(validated_data)
+        if instance.parent_collection_id:
+            parent_jobs = list(instance.parent_collection.jobs.all())
+            if parent_jobs:
+                jobs = parent_jobs
+            elif instance.parent_collection.job_id:
+                jobs = [instance.parent_collection.job_id]
         if jobs:
             instance.jobs.set(jobs)
         elif instance.job_id:
@@ -329,6 +362,12 @@ class JobCollectionSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         jobs = validated_data.pop("jobs", None)
         instance = super().update(instance, validated_data)
+        if instance.parent_collection_id and jobs is None:
+            parent_jobs = list(instance.parent_collection.jobs.all())
+            if parent_jobs:
+                jobs = parent_jobs
+            elif instance.parent_collection.job_id:
+                jobs = [instance.parent_collection.job_id]
         if jobs is not None:
             instance.jobs.set(jobs)
         elif instance.job_id and not instance.jobs.exists():
@@ -337,6 +376,15 @@ class JobCollectionSerializer(serializers.ModelSerializer):
             instance.job = instance.jobs.first()
             instance.save(update_fields=["job"])
         return instance
+
+    def get_remaining_amount_usd(self, obj):
+        return str(collection_remaining_usd(obj))
+
+    def get_remaining_amount_ars(self, obj):
+        return str(collection_remaining_ars(obj))
+
+    def get_has_open_balance(self, obj):
+        return collection_has_open_balance(obj)
 
 
 class JobDistributionSerializer(serializers.ModelSerializer):

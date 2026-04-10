@@ -289,7 +289,7 @@ button {
   font: inherit;
 }
 
-input,
+input:not([type="checkbox"]):not([type="radio"]),
 select,
 textarea {
   width: 100%;
@@ -298,6 +298,16 @@ textarea {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+  accent-color: var(--primary);
 }
 
 .form {
@@ -761,10 +771,22 @@ textarea {
 
 .chip-status {
   text-transform: capitalize;
+  white-space: nowrap;
 }
 
-.status-active,
+.status-active {
+  background: rgba(68, 76, 231, 0.14);
+  border-color: rgba(68, 76, 231, 0.32);
+  color: #3538cd;
+}
+
 .status-completed,
+.status-done {
+  background: rgba(14, 116, 144, 0.14);
+  border-color: rgba(14, 116, 144, 0.32);
+  color: #0f766e;
+}
+
 .status-paid,
 .status-collected {
   background: rgba(18, 183, 106, 0.14);
@@ -774,16 +796,21 @@ textarea {
 
 .status-pending,
 .status-planned {
-  background: rgba(247, 144, 9, 0.14);
-  border-color: rgba(247, 144, 9, 0.35);
-  color: #b54708;
+  background: rgba(52, 64, 84, 0.08);
+  border-color: rgba(52, 64, 84, 0.18);
+  color: #344054;
 }
 
-.status-partial,
 .status-billed {
   background: rgba(47, 128, 237, 0.14);
   border-color: rgba(47, 128, 237, 0.35);
   color: #175cd3;
+}
+
+.status-partial {
+  background: rgba(247, 144, 9, 0.14);
+  border-color: rgba(247, 144, 9, 0.35);
+  color: #b54708;
 }
 
 .status-cancelled {
@@ -792,8 +819,15 @@ textarea {
   color: #b42318;
 }
 
-[data-theme="dark"] .status-active,
+[data-theme="dark"] .status-active {
+  color: #a4bcfd;
+}
+
 [data-theme="dark"] .status-completed,
+[data-theme="dark"] .status-done {
+  color: #99f6e4;
+}
+
 [data-theme="dark"] .status-paid,
 [data-theme="dark"] .status-collected {
   color: #6ce9a6;
@@ -801,12 +835,15 @@ textarea {
 
 [data-theme="dark"] .status-pending,
 [data-theme="dark"] .status-planned {
-  color: #fdb022;
+  color: #d0d5dd;
 }
 
-[data-theme="dark"] .status-partial,
 [data-theme="dark"] .status-billed {
   color: #84caff;
+}
+
+[data-theme="dark"] .status-partial {
+  color: #fdb022;
 }
 
 [data-theme="dark"] .status-cancelled {

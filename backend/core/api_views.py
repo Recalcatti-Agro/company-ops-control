@@ -15,6 +15,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .collection_utils import collection_has_open_balance, collection_remaining_usd, collection_settled_slice_ars
 from .fx_service import get_ars_per_usd
 from .models import (
     CapitalContribution,
@@ -76,14 +77,17 @@ def _monthly_dashboard_data() -> list[dict]:
         monthly_map[item["month"]]["expenses"] = item["total"] or Decimal("0")
 
     billed_collections = (
-        JobCollection.objects.filter(status=JobCollection.Status.BILLED)
-        .prefetch_related("jobs")
+        JobCollection.objects.filter(status=JobCollection.Status.BILLED, parent_collection__isnull=True)
+        .prefetch_related("jobs", "partial_collections")
         .select_related("job")
     )
     for collection in billed_collections:
+        remaining = collection_remaining_usd(collection)
+        if remaining <= Decimal("0"):
+            continue
         reference_date = _collection_work_reference_date(collection)
         month = reference_date.replace(day=1)
-        monthly_map[month]["billed"] += collection.amount_usd or Decimal("0")
+        monthly_map[month]["billed"] += remaining
 
     collected_collections = (
         JobCollection.objects.filter(status=JobCollection.Status.COLLECTED)
@@ -283,14 +287,19 @@ def _build_distribution_plan(
 def recompute_job_status(job: Job) -> None:
     if job.status == Job.Status.CANCELLED:
         return
-    collections = JobCollection.objects.filter(jobs=job).values_list("status", flat=True)
-    statuses = set(collections)
+    collections = list(
+        JobCollection.objects.filter(jobs=job).prefetch_related("partial_collections")
+    )
+    has_open_billed = any(
+        collection_has_open_balance(collection) for collection in collections if not collection.parent_collection_id
+    )
+    has_collected = any(collection.status == JobCollection.Status.COLLECTED for collection in collections)
 
     new_status = job.status
-    if JobCollection.Status.COLLECTED in statuses:
-        new_status = Job.Status.COLLECTED
-    elif JobCollection.Status.BILLED in statuses:
+    if has_open_billed:
         new_status = Job.Status.INVOICED
+    elif has_collected:
+        new_status = Job.Status.COLLECTED
     elif job.status in {Job.Status.INVOICED, Job.Status.COLLECTED}:
         new_status = Job.Status.DONE
 
@@ -775,7 +784,7 @@ class JobViewSet(BaseViewSet):
 
 
 class JobCollectionViewSet(BaseViewSet):
-    queryset = JobCollection.objects.select_related("job").prefetch_related("jobs").all()
+    queryset = JobCollection.objects.select_related("job", "parent_collection").prefetch_related("jobs", "partial_collections").all()
     serializer_class = JobCollectionSerializer
 
     def perform_create(self, serializer):
@@ -788,26 +797,44 @@ class JobCollectionViewSet(BaseViewSet):
         close_collection_liquidation(collection)
 
     def perform_destroy(self, instance):
-        related_jobs = _collection_jobs(instance)
-        dist_ids = list(instance.distributions.values_list("id", flat=True))
+        related_collections = [instance]
+        if not instance.parent_collection_id:
+            related_collections.extend(list(instance.partial_collections.all()))
+
+        related_jobs_map = {}
+        for collection in related_collections:
+            for job in _collection_jobs(collection):
+                related_jobs_map[job.id] = job
+
+        dist_ids = list(JobDistribution.objects.filter(collection__in=related_collections).values_list("id", flat=True))
         if dist_ids:
             movements = CashMovement.objects.filter(job_distribution_id__in=dist_ids)
             CapitalContribution.objects.filter(cash_movement__in=movements).delete()
             movements.delete()
-        _delete_collection_settlement_side_effects(instance)
+        for collection in related_collections:
+            _delete_collection_settlement_side_effects(collection)
         instance.delete()
-        for job in related_jobs:
+        for job in related_jobs_map.values():
             recompute_job_status(job)
 
     @action(detail=True, methods=["post"], url_path="mark-collected")
     def mark_collected(self, request, pk=None):
         collection = self.get_object()
-        billed = collection.amount_usd or Decimal("0")
+        if collection.parent_collection_id:
+            raise ApiValidationError("No podés registrar un cobro sobre un cobro parcial existente.")
+        if collection.status != JobCollection.Status.BILLED:
+            raise ApiValidationError("Solo podés registrar cobros sobre facturas pendientes.")
+
+        remaining = collection_remaining_usd(collection)
+        if remaining <= Decimal("0"):
+            raise ApiValidationError("La factura no tiene saldo pendiente.")
+
         raw_collected = request.data.get("collected_amount_usd")
         raw_currency = request.data.get("collected_currency") or Currency.USD
         raw_original = request.data.get("collected_amount_original")
         raw_fx = request.data.get("collected_fx_ars_usd")
         raw_converted = request.data.get("converted_to_usd")
+        raw_close_remaining = request.data.get("close_remaining")
         raw_date = request.data.get("collection_date")
         if raw_converted is None:
             converted_to_usd = True
@@ -815,7 +842,14 @@ class JobCollectionViewSet(BaseViewSet):
             converted_to_usd = raw_converted
         else:
             converted_to_usd = str(raw_converted).strip().lower() in {"1", "true", "t", "yes", "si", "sí"}
-        original = Decimal(str(raw_original)) if raw_original not in (None, "") else billed
+        if raw_close_remaining is None:
+            close_remaining = False
+        elif isinstance(raw_close_remaining, bool):
+            close_remaining = raw_close_remaining
+        else:
+            close_remaining = str(raw_close_remaining).strip().lower() in {"1", "true", "t", "yes", "si", "sí"}
+
+        original = Decimal(str(raw_original)) if raw_original not in (None, "") else remaining
         if original <= Decimal("0"):
             raise ApiValidationError("El monto cobrado original debe ser mayor a 0.")
         if raw_currency not in {Currency.USD, Currency.ARS}:
@@ -830,41 +864,66 @@ class JobCollectionViewSet(BaseViewSet):
             collected = Decimal(str(raw_collected)) if raw_collected not in (None, "") else original
         if collected <= Decimal("0"):
             raise ApiValidationError("El monto cobrado en USD debe ser mayor a 0.")
-        if raw_currency == Currency.USD and collected > billed:
-            raise ApiValidationError("El monto cobrado no puede superar el facturado.")
+        if collected > remaining:
+            raise ApiValidationError("El monto cobrado no puede superar el saldo pendiente.")
+
         if raw_date:
             try:
-                collection.collection_date = date.fromisoformat(str(raw_date))
+                payment_date = date.fromisoformat(str(raw_date))
             except ValueError as exc:
                 raise ApiValidationError("Fecha de cobro inválida. Usá YYYY-MM-DD.") from exc
-        collection.status = JobCollection.Status.COLLECTED
-        collection.collected_amount_usd = collected.quantize(Decimal("0.01"))
-        collection.collected_currency = raw_currency
-        collection.collected_amount_original = original.quantize(Decimal("0.01"))
-        collection.collected_fx_ars_usd = fx.quantize(Decimal("0.0001")) if fx else None
-        collection.converted_to_usd = converted_to_usd
-        if raw_currency == Currency.ARS and fx:
-            billed_ars = Decimal(collection.amount_ars or 0)
-            ars_shortfall = billed_ars - original
-            if ars_shortfall < Decimal("0"):
-                ars_shortfall = Decimal("0")
-            collection.tax_loss_usd = (ars_shortfall / fx).quantize(Decimal("0.01"))
         else:
-            collection.tax_loss_usd = (billed - collected).quantize(Decimal("0.01"))
-        collection.save(
-            update_fields=[
-                "status",
-                "collected_amount_usd",
-                "collected_currency",
-                "collected_amount_original",
-                "collected_fx_ars_usd",
-                "converted_to_usd",
-                "tax_loss_usd",
-                "collection_date",
-            ]
-        )
+            payment_date = collection.collection_date
+
+        settled_amount = remaining if close_remaining else collected
+        if settled_amount > remaining:
+            settled_amount = remaining
+        if settled_amount < collected:
+            raise ApiValidationError("El tramo liquidado no puede ser menor al monto efectivamente cobrado.")
+
+        settled_amount = settled_amount.quantize(Decimal("0.01"))
+        collected = collected.quantize(Decimal("0.01"))
+        original = original.quantize(Decimal("0.01"))
+        tax_loss = (settled_amount - collected).quantize(Decimal("0.01"))
+        settled_ars = collection_settled_slice_ars(collection, settled_amount)
+
+        with transaction.atomic():
+            partial_collection = JobCollection.objects.create(
+                job=collection.job,
+                parent_collection=collection,
+                collection_date=payment_date,
+                amount_ars=settled_ars,
+                fx_ars_usd=collection.fx_ars_usd,
+                amount_usd=settled_amount,
+                collected_currency=raw_currency,
+                collected_amount_original=original,
+                collected_fx_ars_usd=fx.quantize(Decimal("0.0001")) if fx else None,
+                converted_to_usd=converted_to_usd,
+                collected_amount_usd=collected,
+                tax_loss_usd=tax_loss,
+                status=JobCollection.Status.COLLECTED,
+                notes=collection.notes,
+            )
+            parent_jobs = list(collection.jobs.all())
+            if parent_jobs:
+                partial_collection.jobs.set(parent_jobs)
+            elif collection.job_id:
+                partial_collection.jobs.set([collection.job_id])
+
         recompute_jobs_from_collection(collection)
-        return Response({"detail": "Cobro marcado como cobrado."})
+        recompute_jobs_from_collection(partial_collection)
+        remaining_after = collection_remaining_usd(collection)
+        if remaining_after > Decimal("0"):
+            detail = "Cobro parcial registrado."
+        else:
+            detail = "Cobro registrado y factura saldada."
+        return Response(
+            {
+                "detail": detail,
+                "collection_id": partial_collection.id,
+                "remaining_amount_usd": str(remaining_after),
+            }
+        )
 
     @action(detail=True, methods=["post"], url_path="distribution-preview")
     def distribution_preview(self, request, pk=None):
@@ -1085,10 +1144,20 @@ class DashboardViewSet(viewsets.ViewSet):
         jobs_done_uninvoiced_qs = Job.objects.filter(status=Job.Status.DONE)
         jobs_done_uninvoiced = jobs_done_uninvoiced_qs.count()
         jobs_done_uninvoiced_ha = jobs_done_uninvoiced_qs.aggregate(total=Sum("hectares"))["total"] or Decimal("0")
-        billed_open_qs = JobCollection.objects.filter(status=JobCollection.Status.BILLED)
-        billed_uncollected_count = billed_open_qs.count()
-        billed_uncollected_ars = billed_open_qs.aggregate(total=Sum("amount_ars"))["total"] or Decimal("0")
-        billed_uncollected_usd = billed_open_qs.aggregate(total=Sum("amount_usd"))["total"] or Decimal("0")
+        billed_open_qs = JobCollection.objects.filter(
+            status=JobCollection.Status.BILLED,
+            parent_collection__isnull=True,
+        ).prefetch_related("partial_collections")
+        open_billed_collections = [collection for collection in billed_open_qs if collection_has_open_balance(collection)]
+        billed_uncollected_count = len(open_billed_collections)
+        billed_uncollected_ars = sum(
+            (collection_settled_slice_ars(collection, collection_remaining_usd(collection)) for collection in open_billed_collections),
+            Decimal("0"),
+        )
+        billed_uncollected_usd = sum(
+            (collection_remaining_usd(collection) for collection in open_billed_collections),
+            Decimal("0"),
+        )
         collected_month_qs = JobCollection.objects.filter(
             status=JobCollection.Status.COLLECTED,
             collection_date__year=today.year,
@@ -1115,7 +1184,7 @@ class DashboardViewSet(viewsets.ViewSet):
         installments_paid = installment_qs.filter(status=PaymentObligation.Status.PAID).count()
 
         # Alertas
-        old_billed_count = billed_open_qs.filter(collection_date__lt=today - timedelta(days=30)).count()
+        old_billed_count = sum(1 for collection in open_billed_collections if collection.collection_date < today - timedelta(days=30))
         upcoming_due = list(
             active_obligation_qs.filter(due_date__gte=today)
             .order_by("due_date")

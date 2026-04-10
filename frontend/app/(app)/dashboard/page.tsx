@@ -146,7 +146,7 @@ export default function DashboardPage() {
             </div>
             <div style={{ height: 1, background: "var(--line)" }} />
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span className="small" style={{ opacity: 0.7 }}>Facturado abierto</span>
+              <span className="small" style={{ opacity: 0.7 }}>Por cobrar abierto</span>
               <span style={{ fontWeight: 600, fontSize: 13 }}>{data.pipeline.billed_uncollected_count} · U$S {fmt(data.pipeline.billed_uncollected_usd, 0)}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -254,7 +254,7 @@ export default function DashboardPage() {
                         }}
                       />
                       <div
-                        title={`Facturado pendiente: U$S ${fmt(item.billed, 0)}`}
+                        title={`Pendiente de cobro: U$S ${fmt(item.billed, 0)}`}
                         style={{
                           width: `${(item.billed / maxMonthly) * 100}%`,
                           height: "100%",

@@ -227,6 +227,9 @@ class JobCollection(models.Model):
 
     job = models.ForeignKey(Job, on_delete=models.SET_NULL, null=True, blank=True, related_name="collections")
     jobs = models.ManyToManyField(Job, related_name="grouped_collections", blank=True)
+    parent_collection = models.ForeignKey(
+        "self", on_delete=models.CASCADE, null=True, blank=True, related_name="partial_collections"
+    )
     collection_date = models.DateField()
     amount_ars = models.DecimalField(max_digits=15, decimal_places=2, default=Decimal("0"))
     fx_ars_usd = models.DecimalField(max_digits=15, decimal_places=4, default=Decimal("1"))

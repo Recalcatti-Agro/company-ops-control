@@ -229,7 +229,7 @@ export default function WorksPage() {
 
   const statusClass: Record<Job["status"], string> = {
     PENDING: "status-pending",
-    DONE: "status-completed",
+    DONE: "status-done",
     INVOICED: "status-billed",
     COLLECTED: "status-collected",
     CANCELLED: "status-cancelled",
@@ -359,7 +359,7 @@ export default function WorksPage() {
   return (
     <section className="card">
       <h2>Trabajos</h2>
-      <p className="small">Flujo: Pendiente → Realizado → Facturado → Cobrado.</p>
+      <p className="small">Flujo: Pendiente → Realizado → Facturado (incluye cobros parciales) → Cobrado.</p>
       {error ? <p style={{ color: "#b42318", margin: "0 0 10px" }}>{error}</p> : null}
 
       <div className="row" style={{ marginBottom: 12 }}>
@@ -472,9 +472,9 @@ export default function WorksPage() {
       >
         <span className="small">Estado:</span>
         {[
-          { value: "ALL", label: "Todos", cls: "status-completed" },
+          { value: "ALL", label: "Todos", cls: "status-active" },
           { value: "PENDING", label: "Pendiente", cls: "status-pending" },
-          { value: "DONE", label: "Realizado", cls: "status-completed" },
+          { value: "DONE", label: "Realizado", cls: "status-done" },
           { value: "INVOICED", label: "Facturado", cls: "status-billed" },
           { value: "COLLECTED", label: "Cobrado", cls: "status-collected" },
           { value: "CANCELLED", label: "Cancelado", cls: "status-cancelled" },

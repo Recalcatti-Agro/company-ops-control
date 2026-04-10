@@ -33,8 +33,9 @@ Definir cómo se registra un trabajo, cómo se factura/cobra, cómo se distribuy
 1. En `Distribuciones`, botón `Cobrar` sobre un cobro facturado.
 2. Elegir fecha de cobro, moneda original e importe cobrado.
 3. Si es ARS, se guarda TC y cálculo USD equivalente.
-4. El sistema calcula `tax_loss_usd` vs facturado (diferencia/impuestos).
-5. El `JobCollection` queda en estado `COLLECTED`.
+4. Si el importe no cubre todo el saldo, el sistema registra un `JobCollection` hijo en estado `COLLECTED` y deja la factura madre en `BILLED` por el remanente.
+5. Si se marca `Cerrar saldo restante`, la diferencia queda en `tax_loss_usd` (impuestos/pérdida) y la factura ya no queda pendiente.
+6. Una misma factura puede tener varios cobros parciales antes de quedar totalmente saldada.
 
 ### Paso D. Distribuir cobro
 
