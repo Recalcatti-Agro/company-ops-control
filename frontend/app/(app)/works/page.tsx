@@ -55,7 +55,6 @@ export default function WorksPage() {
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
   const [invoiceAmountArs, setInvoiceAmountArs] = useState("");
-  const [invoiceAmountUsd, setInvoiceAmountUsd] = useState("");
   const [fxQuote, setFxQuote] = useState<FxQuote | null>(null);
   const [invoiceFxArsUsd, setInvoiceFxArsUsd] = useState("");
 
@@ -255,14 +254,19 @@ export default function WorksPage() {
       return;
     }
 
-    const amountUsd = Number(invoiceAmountUsd || 0) || arsAsUsd;
-    if (!amountUsd || amountUsd <= 0) {
-      setError("Indicá un monto válido (ARS o USD) para facturar.");
+    const amountArs = Number(invoiceAmountArs || 0);
+    if (!amountArs || amountArs <= 0) {
+      setError("Indicá un monto válido en ARS para facturar.");
       return;
     }
     const fx = Number(invoiceFxArsUsd || 0);
     if (!fx || fx <= 0) {
       setError("Indicá un tipo de cambio ARS/USD válido.");
+      return;
+    }
+    const amountUsd = arsAsUsd;
+    if (!amountUsd || amountUsd <= 0) {
+      setError("No se pudo calcular el equivalente USD de la factura.");
       return;
     }
 
@@ -284,7 +288,6 @@ export default function WorksPage() {
 
       setSelectedInvoiceJobs([]);
       setInvoiceAmountArs("");
-      setInvoiceAmountUsd("");
       setInvoiceFxArsUsd(fxQuote ? fxQuote.ars_per_usd.toFixed(4) : "");
       setShowInvoiceDialog(false);
       setInvoiceMode(false);
@@ -698,10 +701,9 @@ export default function WorksPage() {
             <p className="small">{`Seleccionados: ${selectedInvoiceJobs.length}`}</p>
             <div className="form">
               <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
-              <input value={invoiceAmountArs} onChange={(e) => setInvoiceAmountArs(e.target.value)} placeholder="Monto ARS (opcional)" />
-              <input value={invoiceAmountUsd} onChange={(e) => setInvoiceAmountUsd(e.target.value)} placeholder="Monto USD (opcional)" />
+              <input value={invoiceAmountArs} onChange={(e) => setInvoiceAmountArs(e.target.value)} placeholder="Monto ARS" />
               <input value={invoiceFxArsUsd} onChange={(e) => setInvoiceFxArsUsd(e.target.value)} placeholder="TC ARS/USD" />
-              <input value={arsAsUsd ? arsAsUsd.toFixed(2) : ""} readOnly placeholder="USD desde ARS (auto)" />
+              <input value={arsAsUsd ? arsAsUsd.toFixed(2) : ""} readOnly placeholder="USD snapshot (auto)" />
             </div>
             <div className="row" style={{ marginTop: 12 }}>
               <button className="btn" type="button" onClick={onInvoice}>

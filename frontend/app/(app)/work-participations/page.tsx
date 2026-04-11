@@ -21,6 +21,7 @@ type JobCollection = {
   collected_fx_ars_usd: string | null;
   converted_to_usd: boolean;
   collected_amount_usd: string | null;
+  tax_loss_ars: string;
   tax_loss_usd: string;
   status: "BILLED" | "COLLECTED";
   remaining_amount_usd: string;
@@ -33,26 +34,38 @@ type Distribution = {
   investor: number | null;
   kind: "FIELD_TEAM" | "SHAREHOLDER" | "REINVESTMENT";
   percentage: string | null;
+  fx_ars_usd?: string | null;
+  amount_ars?: string;
   amount_usd: string;
+  work_amount_ars?: string;
   work_amount_usd?: string;
+  shareholder_amount_ars?: string;
   shareholder_amount_usd?: string;
+  reinvest_to_cash_ars?: string;
   reinvest_to_cash_usd: string;
 };
 type DistributionPreview = {
   collection_id: number;
+  fx_ars_usd: number;
+  target_ars: number;
   target_usd: number;
   field_team_percentage: number;
+  field_team_total_ars: number;
   field_team_total_usd: number;
+  shareholder_total_ars: number;
   shareholder_total_usd: number;
   percentage_reference_date: string;
-  field_team_rows: { investor_id: number; investor_name: string; worker_percentage: number; amount_usd: number }[];
-  shareholder_rows: { investor_id: number; investor_name: string; company_percentage: number; amount_usd: number }[];
+  field_team_rows: { investor_id: number; investor_name: string; worker_percentage: number; amount_ars: number; amount_usd: number }[];
+  shareholder_rows: { investor_id: number; investor_name: string; company_percentage: number; amount_ars: number; amount_usd: number }[];
   investor_rows: {
     investor_id: number;
     investor_name: string;
     company_percentage: number;
+    worker_amount_ars: number;
     worker_amount_usd: number;
+    shareholder_amount_ars: number;
     shareholder_amount_usd: number;
+    total_amount_ars: number;
     total_amount_usd: number;
   }[];
 };
@@ -80,9 +93,10 @@ export default function WorkParticipationsPage() {
   const [editingCollectionId, setEditingCollectionId] = useState<number | null>(null);
   const [editCollectionDate, setEditCollectionDate] = useState("");
   const [editCollectionAmountArs, setEditCollectionAmountArs] = useState("");
-  const [editCollectionAmountUsd, setEditCollectionAmountUsd] = useState("");
+  const [editCollectionFxArsUsd, setEditCollectionFxArsUsd] = useState("");
   const [editCollectionStatus, setEditCollectionStatus] = useState<"BILLED" | "COLLECTED">("BILLED");
-  const [editCollectionCollectedUsd, setEditCollectionCollectedUsd] = useState("");
+  const [editCollectionCollectedArs, setEditCollectionCollectedArs] = useState("");
+  const [editCollectionCollectedFxArsUsd, setEditCollectionCollectedFxArsUsd] = useState("");
 
   const [collectingCollectionId, setCollectingCollectionId] = useState<number | null>(null);
   const [collectingDate, setCollectingDate] = useState(new Date().toISOString().slice(0, 10));
@@ -121,12 +135,54 @@ export default function WorkParticipationsPage() {
       minimumFractionDigits: digits,
       maximumFractionDigits: digits,
     }).format(value);
+  const formatArs = (value: number) => `$ ${formatNumber(value)}`;
   const parseLooseNumber = (raw: string) => {
     const value = String(raw || "").trim().replace(/\s/g, "");
     if (!value) return 0;
     if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(value)) return Number(value.replace(/,/g, ""));
     if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(value)) return Number(value.replace(/\./g, "").replace(",", "."));
     return Number(value.replace(",", "."));
+  };
+
+  const getCollectionFxArsUsd = (collectionId: number | null | undefined) => {
+    if (!collectionId) return 0;
+    const collection = collections.find((item) => item.id === collectionId);
+    if (!collection) return 0;
+    return parseLooseNumber(collection.collected_fx_ars_usd || collection.fx_ars_usd || "0");
+  };
+
+  const convertUsdToArs = (amountUsd: number, collectionId: number | null | undefined) => {
+    const fx = getCollectionFxArsUsd(collectionId);
+    if (!Number.isFinite(fx) || fx <= 0) return 0;
+    return amountUsd * fx;
+  };
+
+  const getCollectionCollectedArs = (collection: JobCollection) => {
+    if (collection.collected_currency === "ARS" && collection.collected_amount_original) {
+      return Number(collection.collected_amount_original || 0);
+    }
+    return convertUsdToArs(Number(collection.collected_amount_usd || 0), collection.id);
+  };
+
+  const getCollectionCollectedUsd = (collection: JobCollection) => {
+    if (collection.collected_amount_usd) return Number(collection.collected_amount_usd || 0);
+    const collectedArs = getCollectionCollectedArs(collection);
+    const fx = getCollectionFxArsUsd(collection.id);
+    if (!Number.isFinite(fx) || fx <= 0) return 0;
+    return collectedArs / fx;
+  };
+
+  const getCollectionTaxArs = (collection: JobCollection) => {
+    if (collection.tax_loss_ars) return Number(collection.tax_loss_ars || 0);
+    return convertUsdToArs(Number(collection.tax_loss_usd || 0), collection.id);
+  };
+
+  const getCollectionTaxUsd = (collection: JobCollection) => {
+    if (collection.tax_loss_usd) return Number(collection.tax_loss_usd || 0);
+    const taxArs = getCollectionTaxArs(collection);
+    const fx = getCollectionFxArsUsd(collection.id);
+    if (!Number.isFinite(fx) || fx <= 0) return 0;
+    return taxArs / fx;
   };
 
   const getCollectionJobIds = (c: JobCollection) => {
@@ -156,9 +212,16 @@ export default function WorkParticipationsPage() {
   const collectionLabelById = useMemo(
     () =>
       Object.fromEntries(
-        collections.map((c) => [c.id, `${getCollectionJobsLabel(c)} - ${c.collection_date} - USD ${formatNumber(Number(c.amount_usd || 0))}`])
+        collections.map((c) => {
+          const arsAmount =
+            c.collected_currency === "ARS" && c.collected_amount_original
+              ? Number(c.collected_amount_original || 0)
+              : convertUsdToArs(Number(c.collected_amount_usd || c.amount_usd || 0), c.id);
+          const moneyLabel = arsAmount > 0 ? `ARS ${formatNumber(arsAmount)}` : `USD ${formatNumber(Number(c.amount_usd || 0))}`;
+          return [c.id, `${getCollectionJobsLabel(c)} - ${c.collection_date} - ${moneyLabel}`];
+        })
       ),
-    [collections, jobById, formatNumber]
+    [collections, jobById]
   );
 
   const invoiceRows = useMemo(() => {
@@ -172,13 +235,15 @@ export default function WorkParticipationsPage() {
         const paymentRows = relatedPayments.length ? relatedPayments : invoice.status === "COLLECTED" ? [invoice] : [];
         const invoiceAmountArs = Number(invoice.amount_ars || 0);
         const invoiceAmountUsd = Number(invoice.amount_usd || 0);
-        const collectedTotalUsd = paymentRows.reduce((acc, payment) => acc + Number(payment.collected_amount_usd || 0), 0);
+        const collectedTotalArs = paymentRows.reduce((acc, payment) => acc + getCollectionCollectedArs(payment), 0);
+        const collectedTotalUsd = paymentRows.reduce((acc, payment) => acc + getCollectionCollectedUsd(payment), 0);
         const remainingAmountArs = Number(invoice.remaining_amount_ars || 0);
         const remainingAmountUsd = Number(invoice.remaining_amount_usd || 0);
-        const taxTotalUsd = paymentRows.reduce((acc, payment) => acc + Number(payment.tax_loss_usd || 0), 0);
+        const taxTotalArs = paymentRows.reduce((acc, payment) => acc + getCollectionTaxArs(payment), 0);
+        const taxTotalUsd = paymentRows.reduce((acc, payment) => acc + getCollectionTaxUsd(payment), 0);
 
         let displayStatus: CollectionDisplayStatus = "BILLED";
-        if (invoice.status === "COLLECTED" || (paymentRows.length > 0 && remainingAmountUsd <= 0)) {
+        if (invoice.status === "COLLECTED" || (paymentRows.length > 0 && remainingAmountArs <= 0)) {
           displayStatus = "COLLECTED";
         } else if (paymentRows.length > 0) {
           displayStatus = "PARTIAL";
@@ -191,12 +256,14 @@ export default function WorkParticipationsPage() {
           clientsLabel: getCollectionClientsLabel(invoice),
           invoiceAmountArs,
           invoiceAmountUsd,
+          collectedTotalArs,
           collectedTotalUsd,
           remainingAmountArs,
           remainingAmountUsd,
+          taxTotalArs,
           taxTotalUsd,
           displayStatus,
-          canCollect: remainingAmountUsd > 0,
+          canCollect: remainingAmountArs > 0,
         };
       })
       .sort((a, b) =>
@@ -342,25 +409,12 @@ export default function WorkParticipationsPage() {
       .catch(() => setError("No se pudo obtener tipo de cambio para la fecha de cobro"));
   }, [collectingCollectionId, collectingDate]);
 
-  const collectingAmountUsd = useMemo(() => {
-    const amount = parseLooseNumber(collectingAmountInput);
-    if (!Number.isFinite(amount)) return 0;
-    const fx = Number(collectingFxArsUsd || 0);
-    if (!Number.isFinite(fx) || fx <= 0) return 0;
-    return amount / fx;
-  }, [collectingAmountInput, collectingFxArsUsd]);
-
   useEffect(() => {
     if (!collectingCollectionId || collectingMode !== "FULL" || collectingCompleteAsTax) return;
     const collection = collections.find((item) => item.id === collectingCollectionId);
     if (!collection) return;
-    const remainingUsd = Number(collection.remaining_amount_usd || 0);
-    const fx = parseLooseNumber(collectingFxArsUsd);
-    if (!Number.isFinite(fx) || fx <= 0) {
-      setCollectingAmountInput("");
-      return;
-    }
-    setCollectingAmountInput((remainingUsd * fx).toFixed(2));
+    const remainingArs = Number(collection.remaining_amount_ars || 0);
+    setCollectingAmountInput(remainingArs > 0 ? remainingArs.toFixed(2) : "");
   }, [collectingCollectionId, collectingMode, collectingFxArsUsd, collections, collectingCompleteAsTax]);
 
   const onConfirmCollected = async () => {
@@ -368,18 +422,22 @@ export default function WorkParticipationsPage() {
     const c = collections.find((item) => item.id === collectingCollectionId);
     if (!c) return;
 
-    const remainingUsd = Number(c.remaining_amount_usd || 0);
+    const remainingArs = Number(c.remaining_amount_ars || 0);
+    const collectedFx = parseLooseNumber(collectingFxArsUsd);
     const collectedOriginal = parseLooseNumber(collectingAmountInput);
-    const collected = Number(collectingAmountUsd || 0);
-    if (!collected || collected <= 0) {
+    if (!Number.isFinite(collectedFx) || collectedFx <= 0) {
+      setError("Indicá un tipo de cambio ARS/USD válido.");
+      return;
+    }
+    if (!collectedOriginal || collectedOriginal <= 0) {
       setError("Ingresá un monto cobrado válido.");
       return;
     }
-    if (collected > remainingUsd + 0.01) {
+    if (collectedOriginal > remainingArs + 0.01) {
       setError("El monto cobrado no puede superar el saldo pendiente.");
       return;
     }
-    if (collectingMode === "FULL" && !collectingCompleteAsTax && Math.abs(collected - remainingUsd) > 0.01) {
+    if (collectingMode === "FULL" && !collectingCompleteAsTax && Math.abs(collectedOriginal - remainingArs) > 0.01) {
       setError("Para saldar sin impuestos, el monto debe coincidir con el saldo pendiente.");
       return;
     }
@@ -389,7 +447,6 @@ export default function WorkParticipationsPage() {
       await apiFetch(`/job-collections/${collectingCollectionId}/mark-collected/`, {
         method: "POST",
         body: JSON.stringify({
-          collected_amount_usd: collected.toFixed(2),
           collected_currency: "ARS",
           collected_amount_original: collectedOriginal.toFixed(2),
           collected_fx_ars_usd: collectingFxArsUsd,
@@ -413,9 +470,12 @@ export default function WorkParticipationsPage() {
     setEditingCollectionId(c.id);
     setEditCollectionDate(c.collection_date);
     setEditCollectionAmountArs(c.amount_ars || "0");
-    setEditCollectionAmountUsd(c.amount_usd || "0");
+    setEditCollectionFxArsUsd(c.fx_ars_usd || "");
     setEditCollectionStatus(c.status);
-    setEditCollectionCollectedUsd(c.collected_amount_usd || c.amount_usd || "0");
+    setEditCollectionCollectedArs(
+      c.status === "COLLECTED" ? (getCollectionCollectedArs(c) > 0 ? getCollectionCollectedArs(c).toFixed(2) : c.amount_ars || "0") : ""
+    );
+    setEditCollectionCollectedFxArsUsd(c.collected_fx_ars_usd || c.fx_ars_usd || "");
   };
 
   const onSaveEditCollection = async () => {
@@ -425,10 +485,14 @@ export default function WorkParticipationsPage() {
       const payload: Record<string, string> = {
         collection_date: editCollectionDate,
         amount_ars: editCollectionAmountArs || "0",
-        amount_usd: editCollectionAmountUsd || "0",
+        fx_ars_usd: editCollectionFxArsUsd || "0",
         status: editCollectionStatus,
       };
-      if (editCollectionStatus === "COLLECTED") payload.collected_amount_usd = editCollectionCollectedUsd || editCollectionAmountUsd || "0";
+      if (editCollectionStatus === "COLLECTED") {
+        payload.collected_currency = "ARS";
+        payload.collected_amount_original = editCollectionCollectedArs || "0";
+        payload.collected_fx_ars_usd = editCollectionCollectedFxArsUsd || editCollectionFxArsUsd || "0";
+      }
 
       await apiFetch(`/job-collections/${editingCollectionId}/`, {
         method: "PATCH",
@@ -458,27 +522,41 @@ export default function WorkParticipationsPage() {
         display_id: string;
         display_kind: "WORK" | "SHAREHOLDER" | "FIELD_TEAM" | "REINVESTMENT";
         display_percentage: string | null;
+        display_amount_ars: number;
         display_amount_usd: number;
+        display_reinvest_ars: number;
         display_reinvest_usd: number;
+        display_withdraw_ars: number;
         display_withdraw_usd: number;
       }
     > = [];
 
     for (const row of rows) {
-      const workAmount = Number(row.work_amount_usd || 0);
-      const shareholderAmount = Number(row.shareholder_amount_usd || 0);
-      const reinvest = Number(row.reinvest_to_cash_usd || 0);
-      const withdraw = Number(row.amount_usd || 0) - reinvest;
+      const fx = parseLooseNumber(row.fx_ars_usd || "0");
+      const amountArs = Number(row.amount_ars || 0) || (fx > 0 ? Number(row.amount_usd || 0) * fx : 0);
+      const workAmountArs = Number(row.work_amount_ars || 0) || (fx > 0 ? Number(row.work_amount_usd || 0) * fx : 0);
+      const shareholderAmountArs = Number(row.shareholder_amount_ars || 0) || (fx > 0 ? Number(row.shareholder_amount_usd || 0) * fx : 0);
+      const reinvestArs = Number(row.reinvest_to_cash_ars || 0) || (fx > 0 ? Number(row.reinvest_to_cash_usd || 0) * fx : 0);
+      const withdrawArs = amountArs - reinvestArs;
 
-      if (row.kind === "SHAREHOLDER" && (workAmount > 0 || shareholderAmount > 0)) {
-        if (workAmount > 0) {
+      const workAmountUsd = Number(row.work_amount_usd || 0) || (fx > 0 ? workAmountArs / fx : 0);
+      const shareholderAmountUsd = Number(row.shareholder_amount_usd || 0) || (fx > 0 ? shareholderAmountArs / fx : 0);
+      const amountUsd = Number(row.amount_usd || 0) || (fx > 0 ? amountArs / fx : 0);
+      const reinvestUsd = Number(row.reinvest_to_cash_usd || 0) || (fx > 0 ? reinvestArs / fx : 0);
+      const withdrawUsd = amountUsd - reinvestUsd;
+
+      if (row.kind === "SHAREHOLDER" && (workAmountArs > 0 || shareholderAmountArs > 0)) {
+        if (workAmountArs > 0) {
           out.push({
             ...row,
             display_id: `${row.id}-work`,
             display_kind: "WORK",
             display_percentage: null,
-            display_amount_usd: workAmount,
+            display_amount_ars: workAmountArs,
+            display_amount_usd: workAmountUsd,
+            display_reinvest_ars: 0,
             display_reinvest_usd: 0,
+            display_withdraw_ars: 0,
             display_withdraw_usd: 0,
           });
         }
@@ -487,9 +565,12 @@ export default function WorkParticipationsPage() {
           display_id: `${row.id}-shareholder`,
           display_kind: "SHAREHOLDER",
           display_percentage: row.percentage ?? null,
-          display_amount_usd: shareholderAmount,
-          display_reinvest_usd: reinvest,
-          display_withdraw_usd: withdraw,
+          display_amount_ars: shareholderAmountArs,
+          display_amount_usd: shareholderAmountUsd,
+          display_reinvest_ars: reinvestArs,
+          display_reinvest_usd: reinvestUsd,
+          display_withdraw_ars: withdrawArs,
+          display_withdraw_usd: withdrawUsd,
         });
         continue;
       }
@@ -499,9 +580,12 @@ export default function WorkParticipationsPage() {
         display_id: `${row.id}-base`,
         display_kind: row.kind,
         display_percentage: row.kind === "SHAREHOLDER" ? row.percentage ?? null : null,
-        display_amount_usd: Number(row.amount_usd || 0),
-        display_reinvest_usd: reinvest,
-        display_withdraw_usd: withdraw,
+        display_amount_ars: amountArs,
+        display_amount_usd: amountUsd,
+        display_reinvest_ars: reinvestArs,
+        display_reinvest_usd: reinvestUsd,
+        display_withdraw_ars: withdrawArs,
+        display_withdraw_usd: withdrawUsd,
       });
     }
 
@@ -551,23 +635,32 @@ export default function WorkParticipationsPage() {
   const collectionTotals = useMemo(() => {
     let invoiceArs = 0;
     let invoiceUsd = 0;
+    let collectedArs = 0;
     let collectedUsd = 0;
+    let remainingArs = 0;
     let remainingUsd = 0;
+    let taxArs = 0;
     let taxUsd = 0;
 
     for (const row of invoiceRows) {
       invoiceArs += row.invoiceAmountArs;
       invoiceUsd += row.invoiceAmountUsd;
+      collectedArs += row.collectedTotalArs;
       collectedUsd += row.collectedTotalUsd;
+      remainingArs += row.remainingAmountArs;
       remainingUsd += row.remainingAmountUsd;
+      taxArs += row.taxTotalArs;
       taxUsd += row.taxTotalUsd;
     }
 
     return {
       invoiceArs,
       invoiceUsd,
+      collectedArs,
       collectedUsd,
+      remainingArs,
       remainingUsd,
+      taxArs,
       taxUsd,
     };
   }, [invoiceRows]);
@@ -652,10 +745,9 @@ export default function WorkParticipationsPage() {
                 <th>Cliente</th>
                 <th>Estado</th>
                 <th>ARS factura</th>
-                <th>USD factura</th>
-                <th>USD cobrado</th>
-                <th>USD resta</th>
-                <th>USD impuestos</th>
+                <th>ARS cobrado</th>
+                <th>ARS resta</th>
+                <th>ARS impuestos</th>
                 <th>Cobros</th>
                 <th></th>
               </tr>
@@ -688,11 +780,30 @@ export default function WorkParticipationsPage() {
                       <td>
                         <span className={`chip-label chip-status ${statusClass}`}>{statusLabel}</span>
                       </td>
-                      <td>{formatNumber(row.invoiceAmountArs)}</td>
-                      <td>{formatNumber(row.invoiceAmountUsd)}</td>
-                      <td>{formatNumber(row.collectedTotalUsd)}</td>
-                      <td>{formatNumber(row.remainingAmountUsd)}</td>
-                      <td>{formatNumber(row.taxTotalUsd)}</td>
+                      <td>
+                        <div className="concept-cell">
+                          <span className="concept-main">{formatArs(row.invoiceAmountArs)}</span>
+                          <span className="concept-subline">{`USD ${formatNumber(row.invoiceAmountUsd)}`}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="concept-cell">
+                          <span className="concept-main">{formatArs(row.collectedTotalArs)}</span>
+                          <span className="concept-subline">{`USD ${formatNumber(row.collectedTotalUsd)}`}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="concept-cell">
+                          <span className="concept-main">{formatArs(row.remainingAmountArs)}</span>
+                          <span className="concept-subline">{`USD ${formatNumber(row.remainingAmountUsd)}`}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="concept-cell">
+                          <span className="concept-main">{formatArs(row.taxTotalArs)}</span>
+                          <span className="concept-subline">{`USD ${formatNumber(row.taxTotalUsd)}`}</span>
+                        </div>
+                      </td>
                       <td>{row.paymentRows.length}</td>
                       <td>
                         <div className="row" style={{ justifyContent: "flex-end" }} onClick={(e) => e.stopPropagation()}>
@@ -708,9 +819,10 @@ export default function WorkParticipationsPage() {
                           <div style={{ display: "grid", gap: 12, padding: "6px 0" }}>
                             <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
                               <span className={`chip-label chip-status ${statusClass}`}>{statusLabel}</span>
-                              <span className="chip-label">Factura USD {formatNumber(row.invoiceAmountUsd)}</span>
-                              <span className="chip-label">Cobrado USD {formatNumber(row.collectedTotalUsd)}</span>
-                              <span className="chip-label">Resta USD {formatNumber(row.remainingAmountUsd)}</span>
+                              <span className="chip-label">Factura ARS {formatNumber(row.invoiceAmountArs)}</span>
+                              <span className="chip-label">Cobrado ARS {formatNumber(row.collectedTotalArs)}</span>
+                              <span className="chip-label">Resta ARS {formatNumber(row.remainingAmountArs)}</span>
+                              <span className="chip-label">Imp. ARS {formatNumber(row.taxTotalArs)}</span>
                               <span className="chip-label">Cobros rel. {row.paymentRows.length}</span>
                             </div>
 
@@ -735,8 +847,8 @@ export default function WorkParticipationsPage() {
                                     <tr>
                                       <th>Fecha cobro</th>
                                       <th>Cobro ARS</th>
-                                      <th>USD cobrado</th>
-                                      <th>USD impuestos</th>
+                                      <th>Imp. ARS</th>
+                                      <th>TC</th>
                                       <th></th>
                                     </tr>
                                   </thead>
@@ -745,10 +857,18 @@ export default function WorkParticipationsPage() {
                                       <tr key={payment.id}>
                                         <td>{payment.collection_date}</td>
                                         <td>
-                                          {payment.collected_amount_original ? `$ ${formatNumber(Number(payment.collected_amount_original))}` : "-"}
+                                          <div className="concept-cell">
+                                            <span className="concept-main">{formatArs(getCollectionCollectedArs(payment))}</span>
+                                            <span className="concept-subline">{`USD ${formatNumber(getCollectionCollectedUsd(payment))}`}</span>
+                                          </div>
                                         </td>
-                                        <td>{payment.collected_amount_usd ? formatNumber(Number(payment.collected_amount_usd)) : "-"}</td>
-                                        <td>{formatNumber(Number(payment.tax_loss_usd || 0))}</td>
+                                        <td>
+                                          <div className="concept-cell">
+                                            <span className="concept-main">{formatArs(getCollectionTaxArs(payment))}</span>
+                                            <span className="concept-subline">{`USD ${formatNumber(getCollectionTaxUsd(payment))}`}</span>
+                                          </div>
+                                        </td>
+                                        <td>{payment.collected_fx_ars_usd ? formatNumber(Number(payment.collected_fx_ars_usd), 4) : "-"}</td>
                                         <td>
                                           <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
                                             <button className="btn btn-secondary" type="button" onClick={() => onStartDistribution(payment.id)}>
@@ -791,11 +911,30 @@ export default function WorkParticipationsPage() {
               <tfoot>
                 <tr>
                   <td colSpan={4} style={{ fontWeight: 700 }}>Totales</td>
-                  <td style={{ fontWeight: 700 }}>{formatNumber(collectionTotals.invoiceArs)}</td>
-                  <td style={{ fontWeight: 700 }}>{formatNumber(collectionTotals.invoiceUsd)}</td>
-                  <td style={{ fontWeight: 700 }}>{formatNumber(collectionTotals.collectedUsd)}</td>
-                  <td style={{ fontWeight: 700 }}>{formatNumber(collectionTotals.remainingUsd)}</td>
-                  <td style={{ fontWeight: 700 }}>{formatNumber(collectionTotals.taxUsd)}</td>
+                  <td style={{ fontWeight: 700 }}>
+                    <div className="concept-cell">
+                      <span className="concept-main">{formatArs(collectionTotals.invoiceArs)}</span>
+                      <span className="concept-subline">{`USD ${formatNumber(collectionTotals.invoiceUsd)}`}</span>
+                    </div>
+                  </td>
+                  <td style={{ fontWeight: 700 }}>
+                    <div className="concept-cell">
+                      <span className="concept-main">{formatArs(collectionTotals.collectedArs)}</span>
+                      <span className="concept-subline">{`USD ${formatNumber(collectionTotals.collectedUsd)}`}</span>
+                    </div>
+                  </td>
+                  <td style={{ fontWeight: 700 }}>
+                    <div className="concept-cell">
+                      <span className="concept-main">{formatArs(collectionTotals.remainingArs)}</span>
+                      <span className="concept-subline">{`USD ${formatNumber(collectionTotals.remainingUsd)}`}</span>
+                    </div>
+                  </td>
+                  <td style={{ fontWeight: 700 }}>
+                    <div className="concept-cell">
+                      <span className="concept-main">{formatArs(collectionTotals.taxArs)}</span>
+                      <span className="concept-subline">{`USD ${formatNumber(collectionTotals.taxUsd)}`}</span>
+                    </div>
+                  </td>
                   <td />
                   <td />
                 </tr>
@@ -838,9 +977,9 @@ export default function WorkParticipationsPage() {
                           <th>Tipo</th>
                           <th>Inversor</th>
                           <th>%</th>
-                          <th>USD total</th>
-                          <th>USD caja</th>
-                          <th>USD retiro</th>
+                          <th>ARS total</th>
+                          <th>ARS caja</th>
+                          <th>ARS retiro</th>
                           <th></th>
                         </tr>
                       </thead>
@@ -854,9 +993,24 @@ export default function WorkParticipationsPage() {
                               </span>
                             </td>
                             <td>{row.display_percentage ? `${Number(row.display_percentage).toFixed(2)}%` : "-"}</td>
-                            <td>{formatNumber(Number(row.display_amount_usd || 0))}</td>
-                            <td>{formatNumber(Number(row.display_reinvest_usd || 0))}</td>
-                            <td>{formatNumber(Number(row.display_withdraw_usd || 0))}</td>
+                            <td>
+                              <div className="concept-cell">
+                                <span className="concept-main">{formatArs(Number(row.display_amount_ars || 0))}</span>
+                                <span className="concept-subline">{`USD ${formatNumber(Number(row.display_amount_usd || 0))}`}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="concept-cell">
+                                <span className="concept-main">{formatArs(Number(row.display_reinvest_ars || 0))}</span>
+                                <span className="concept-subline">{`USD ${formatNumber(Number(row.display_reinvest_usd || 0))}`}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="concept-cell">
+                                <span className="concept-main">{formatArs(Number(row.display_withdraw_ars || 0))}</span>
+                                <span className="concept-subline">{`USD ${formatNumber(Number(row.display_withdraw_usd || 0))}`}</span>
+                              </div>
+                            </td>
                             <td>
                               <div className="row" style={{ justifyContent: "flex-end" }}>
                                 <button className="btn btn-secondary" onClick={() => onDelete(row.id)}>
@@ -898,14 +1052,51 @@ export default function WorkParticipationsPage() {
             <h3 style={{ marginTop: 0 }}>Editar facturación</h3>
             <div className="form">
               <input type="date" value={editCollectionDate} onChange={(e) => setEditCollectionDate(e.target.value)} />
-              <input value={editCollectionAmountArs} onChange={(e) => setEditCollectionAmountArs(e.target.value)} placeholder="Monto ARS" />
-              <input value={editCollectionAmountUsd} onChange={(e) => setEditCollectionAmountUsd(e.target.value)} placeholder="Monto USD" />
+              <input value={editCollectionAmountArs} onChange={(e) => setEditCollectionAmountArs(e.target.value)} placeholder="ARS facturados/liquidados" />
+              <input value={editCollectionFxArsUsd} onChange={(e) => setEditCollectionFxArsUsd(e.target.value)} placeholder="TC ARS/USD factura" />
+              <input
+                value={(() => {
+                  const amountArs = parseLooseNumber(editCollectionAmountArs);
+                  const fx = parseLooseNumber(editCollectionFxArsUsd);
+                  if (!Number.isFinite(amountArs) || !Number.isFinite(fx) || fx <= 0) return "";
+                  return (amountArs / fx).toFixed(2);
+                })()}
+                readOnly
+                placeholder="USD snapshot factura (auto)"
+              />
               <select value={editCollectionStatus} onChange={(e) => setEditCollectionStatus(e.target.value as "BILLED" | "COLLECTED")}>
                 <option value="BILLED">Facturado</option>
                 <option value="COLLECTED">Cobrado</option>
               </select>
               {editCollectionStatus === "COLLECTED" ? (
-                <input value={editCollectionCollectedUsd} onChange={(e) => setEditCollectionCollectedUsd(e.target.value)} placeholder="USD cobrado final" />
+                <>
+                  <input value={editCollectionCollectedArs} onChange={(e) => setEditCollectionCollectedArs(e.target.value)} placeholder="ARS cobrados" />
+                  <input
+                    value={editCollectionCollectedFxArsUsd}
+                    onChange={(e) => setEditCollectionCollectedFxArsUsd(e.target.value)}
+                    placeholder="TC ARS/USD cobro"
+                  />
+                  <input
+                    value={(() => {
+                      const collectedArs = parseLooseNumber(editCollectionCollectedArs);
+                      const fx = parseLooseNumber(editCollectionCollectedFxArsUsd);
+                      if (!Number.isFinite(collectedArs) || !Number.isFinite(fx) || fx <= 0) return "";
+                      return (collectedArs / fx).toFixed(2);
+                    })()}
+                    readOnly
+                    placeholder="USD snapshot cobro (auto)"
+                  />
+                  <input
+                    value={(() => {
+                      const amountArs = parseLooseNumber(editCollectionAmountArs);
+                      const collectedArs = parseLooseNumber(editCollectionCollectedArs);
+                      const taxArs = Math.max(0, amountArs - collectedArs);
+                      return taxArs.toFixed(2);
+                    })()}
+                    readOnly
+                    placeholder="Imp./pérdida ARS (auto)"
+                  />
+                </>
               ) : null}
             </div>
             <div className="row" style={{ marginTop: 12 }}>
@@ -942,8 +1133,9 @@ export default function WorkParticipationsPage() {
               <div className="small">
                 {(() => {
                   const col = collections.find((c) => c.id === collectingCollectionId);
+                  const pendingArs = Number(col?.remaining_amount_ars || 0);
                   const pendingUsd = Number(col?.remaining_amount_usd || 0);
-                  return `Saldo pendiente: U$S ${pendingUsd.toFixed(2)}`;
+                  return `Saldo pendiente: ${formatArs(pendingArs)} | USD ${pendingUsd.toFixed(2)}`;
                 })()}
               </div>
               <div className="small">Tipo de registro</div>
@@ -1131,9 +1323,17 @@ export default function WorkParticipationsPage() {
             {distributionPreview ? (
               <div style={{ marginTop: 14 }}>
                 <p className="small" style={{ margin: "0 0 8px 0" }}>
+                  Cobrado ARS: <strong>{formatArs(distributionPreview.target_ars)}</strong> | Equipo campo ARS:{" "}
+                  <strong>{formatArs(distributionPreview.field_team_total_ars)}</strong> | Accionistas ARS:{" "}
+                  <strong>{formatArs(distributionPreview.shareholder_total_ars)}</strong>
+                </p>
+                <p className="small" style={{ margin: "0 0 8px 0" }}>
                   Cobrado USD: <strong>{formatNumber(distributionPreview.target_usd)}</strong> | Equipo campo USD:{" "}
                   <strong>{formatNumber(distributionPreview.field_team_total_usd)}</strong> | Accionistas USD:{" "}
                   <strong>{formatNumber(distributionPreview.shareholder_total_usd)}</strong>
+                </p>
+                <p className="small" style={{ margin: "0 0 8px 0" }}>
+                  TC ARS/USD del cobro: <strong>{formatNumber(distributionPreview.fx_ars_usd, 4)}</strong>
                 </p>
                 <p className="small" style={{ margin: "0 0 8px 0" }}>
                   % empresa calculado al: <strong>{distributionPreview.percentage_reference_date}</strong>
@@ -1145,6 +1345,7 @@ export default function WorkParticipationsPage() {
                       <tr>
                         <th>Persona</th>
                         <th>% del cobro</th>
+                        <th>ARS</th>
                         <th>USD</th>
                       </tr>
                     </thead>
@@ -1153,12 +1354,13 @@ export default function WorkParticipationsPage() {
                         <tr key={row.investor_id}>
                           <td>{row.investor_name}</td>
                           <td>{formatNumber(row.worker_percentage)}%</td>
+                          <td>{formatArs(row.amount_ars)}</td>
                           <td>{formatNumber(row.amount_usd)}</td>
                         </tr>
                       ))}
                       {!distributionPreview.field_team_rows.length ? (
                         <tr>
-                          <td colSpan={3}>Sin distribución a equipo de campo</td>
+                          <td colSpan={4}>Sin distribución a equipo de campo</td>
                         </tr>
                       ) : null}
                     </tbody>
@@ -1172,22 +1374,29 @@ export default function WorkParticipationsPage() {
                       <tr>
                         <th>Inversor</th>
                         <th>% empresa</th>
+                        <th>ARS por accionista</th>
+                        <th>ARS por trabajo</th>
+                        <th>ARS total</th>
                         <th>USD por accionista</th>
                         <th>USD por trabajo</th>
                         <th>USD total</th>
-                        <th>Retira USD</th>
-                        <th>Reinvierte USD</th>
+                        <th>Retira ARS</th>
+                        <th>Reinvierte ARS</th>
                       </tr>
                     </thead>
                     <tbody>
                       {distributionPreview.investor_rows.map((row) => {
-                        const withdraw = Number(withdrawalsByInvestor[row.investor_id] || 0);
-                        const cappedWithdraw = Math.max(0, Math.min(withdraw, row.total_amount_usd));
-                        const reinvest = row.total_amount_usd - cappedWithdraw;
+                        const withdraw = parseLooseNumber(withdrawalsByInvestor[row.investor_id] || "0");
+                        const cappedWithdraw = Math.max(0, Math.min(withdraw, row.total_amount_ars));
+                        const reinvest = row.total_amount_ars - cappedWithdraw;
+                        const reinvestUsd = distributionPreview.fx_ars_usd > 0 ? reinvest / distributionPreview.fx_ars_usd : 0;
                         return (
                           <tr key={row.investor_id}>
                             <td>{row.investor_name}</td>
                             <td>{row.company_percentage.toFixed(2)}%</td>
+                            <td>{formatArs(row.shareholder_amount_ars)}</td>
+                            <td>{formatArs(row.worker_amount_ars)}</td>
+                            <td>{formatArs(row.total_amount_ars)}</td>
                             <td>{formatNumber(row.shareholder_amount_usd)}</td>
                             <td>{formatNumber(row.worker_amount_usd)}</td>
                             <td>{formatNumber(row.total_amount_usd)}</td>
@@ -1203,7 +1412,12 @@ export default function WorkParticipationsPage() {
                                 placeholder="0"
                               />
                             </td>
-                            <td>{formatNumber(reinvest)}</td>
+                            <td>
+                              <div className="concept-cell">
+                                <span className="concept-main">{formatArs(reinvest)}</span>
+                                <span className="concept-subline">{`USD ${formatNumber(reinvestUsd)}`}</span>
+                              </div>
+                            </td>
                           </tr>
                         );
                       })}

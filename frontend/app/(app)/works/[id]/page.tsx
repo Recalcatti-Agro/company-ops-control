@@ -25,9 +25,13 @@ type JobDetailResponse = {
   summary: {
     invoice_count: number;
     payment_count: number;
+    invoiced_total_ars: string;
     invoiced_total_usd: string;
+    collected_total_ars: string;
     collected_total_usd: string;
+    remaining_total_ars: string;
     remaining_total_usd: string;
+    tax_loss_total_ars: string;
     tax_loss_total_usd: string;
   };
   collections: JobCollectionDetail[];
@@ -50,9 +54,14 @@ type JobDistributionDetail = {
   investor_id: number | null;
   investor_name: string | null;
   percentage: string | null;
+  fx_ars_usd: string | null;
+  amount_ars: string;
   amount_usd: string;
+  work_amount_ars: string;
   work_amount_usd: string;
+  shareholder_amount_ars: string;
   shareholder_amount_usd: string;
+  reinvest_to_cash_ars: string;
   reinvest_to_cash_usd: string;
   notes: string;
 };
@@ -65,15 +74,18 @@ type JobCollectionDetail = {
   collection_date: string;
   status: CollectionStatus;
   amount_ars: string;
+  fx_ars_usd: string | null;
   amount_usd: string;
   collected_currency: "USD" | "ARS" | null;
   collected_amount_original: string | null;
   collected_fx_ars_usd: string | null;
   converted_to_usd: boolean;
   collected_amount_usd: string | null;
+  tax_loss_ars: string;
   tax_loss_usd: string;
   remaining_amount_usd: string;
   remaining_amount_ars: string;
+  settled_total_ars: string;
   settled_total_usd: string;
   notes: string;
   related_jobs: JobReference[];
@@ -123,6 +135,8 @@ const formatNumber = (value: string | number | null | undefined, digits = 2) =>
     maximumFractionDigits: digits,
   }).format(Number(value || 0));
 
+const formatArs = (value: string | number | null | undefined) => `$ ${formatNumber(value)}`;
+
 const formatDate = (value: string | null) => {
   if (!value) return "-";
   return new Date(`${value}T00:00:00`).toLocaleDateString("es-AR");
@@ -140,6 +154,16 @@ function DetailField({ label, value }: { label: string; value: string }) {
   );
 }
 
+function MoneyField({ label, ars, usd }: { label: string; ars: string | number; usd: string | number }) {
+  return (
+    <div style={{ display: "grid", gap: 2 }}>
+      <span className="small">{label}</span>
+      <span>{formatArs(ars)}</span>
+      <span className="small">{`USD ${formatNumber(usd)}`}</span>
+    </div>
+  );
+}
+
 function DistributionTable({ rows }: { rows: JobDistributionDetail[] }) {
   if (!rows.length) {
     return <div className="small">Sin distribuciones registradas para este cobro.</div>;
@@ -153,7 +177,7 @@ function DistributionTable({ rows }: { rows: JobDistributionDetail[] }) {
             <th>Tipo</th>
             <th>Inversor</th>
             <th>%</th>
-            <th>USD</th>
+            <th>Monto</th>
             <th>Notas</th>
           </tr>
         </thead>
@@ -163,7 +187,12 @@ function DistributionTable({ rows }: { rows: JobDistributionDetail[] }) {
               <td>{row.kind_label}</td>
               <td>{row.investor_name || "-"}</td>
               <td>{row.percentage ? `${formatNumber(row.percentage, 2)}%` : "-"}</td>
-              <td>{formatNumber(row.amount_usd)}</td>
+              <td>
+                <div className="concept-cell">
+                  <span className="concept-main">{formatArs(row.amount_ars)}</span>
+                  <span className="concept-subline">{`USD ${formatNumber(row.amount_usd)}`}</span>
+                </div>
+              </td>
               <td>{row.notes || "-"}</td>
             </tr>
           ))}
@@ -208,6 +237,26 @@ export default function WorkDetailPage() {
       ? `${formatDate(detail.job.date)} → ${formatDate(detail.job.end_date)}`
       : formatDate(detail.job.date)
     : "-";
+
+  const getCollectionFx = (collection: JobCollectionDetail) => Number(collection.collected_fx_ars_usd || collection.fx_ars_usd || 0);
+  const getCollectedArs = (collection: JobCollectionDetail) => {
+    if (collection.collected_currency === "ARS" && collection.collected_amount_original) {
+      return Number(collection.collected_amount_original || 0);
+    }
+    const fx = getCollectionFx(collection);
+    if (fx > 0 && collection.collected_amount_usd) {
+      return Number(collection.collected_amount_usd || 0) * fx;
+    }
+    return Math.max(0, Number(collection.amount_ars || 0) - Number(collection.tax_loss_ars || 0));
+  };
+  const getCollectedUsd = (collection: JobCollectionDetail) => {
+    if (collection.collected_amount_usd) return Number(collection.collected_amount_usd || 0);
+    const fx = getCollectionFx(collection);
+    if (fx <= 0) return 0;
+    return getCollectedArs(collection) / fx;
+  };
+  const getTaxArs = (collection: JobCollectionDetail) => Number(collection.tax_loss_ars || 0);
+  const getTaxUsd = (collection: JobCollectionDetail) => Number(collection.tax_loss_usd || 0);
 
   return (
     <section className="grid" style={{ gap: 16 }}>
@@ -278,28 +327,32 @@ export default function WorkDetailPage() {
                   </div>
                 </div>
                 <div className="card" style={{ padding: 12 }}>
-                  <div className="small">USD facturado</div>
+                  <div className="small">Facturado</div>
                   <div className="kpi" style={{ fontSize: 24 }}>
-                    {formatNumber(detail.summary.invoiced_total_usd)}
+                    {formatArs(detail.summary.invoiced_total_ars)}
                   </div>
+                  <div className="small">{`USD ${formatNumber(detail.summary.invoiced_total_usd)}`}</div>
                 </div>
                 <div className="card" style={{ padding: 12 }}>
-                  <div className="small">USD cobrado</div>
+                  <div className="small">Cobrado</div>
                   <div className="kpi" style={{ fontSize: 24 }}>
-                    {formatNumber(detail.summary.collected_total_usd)}
+                    {formatArs(detail.summary.collected_total_ars)}
                   </div>
+                  <div className="small">{`USD ${formatNumber(detail.summary.collected_total_usd)}`}</div>
                 </div>
                 <div className="card" style={{ padding: 12 }}>
-                  <div className="small">USD pendiente</div>
+                  <div className="small">Pendiente</div>
                   <div className="kpi" style={{ fontSize: 24 }}>
-                    {formatNumber(detail.summary.remaining_total_usd)}
+                    {formatArs(detail.summary.remaining_total_ars)}
                   </div>
+                  <div className="small">{`USD ${formatNumber(detail.summary.remaining_total_usd)}`}</div>
                 </div>
                 <div className="card" style={{ padding: 12 }}>
-                  <div className="small">USD impuestos/pérdida</div>
+                  <div className="small">Impuestos / pérdida</div>
                   <div className="kpi" style={{ fontSize: 24 }}>
-                    {formatNumber(detail.summary.tax_loss_total_usd)}
+                    {formatArs(detail.summary.tax_loss_total_ars)}
                   </div>
+                  <div className="small">{`USD ${formatNumber(detail.summary.tax_loss_total_usd)}`}</div>
                 </div>
               </div>
             </div>
@@ -340,7 +393,10 @@ export default function WorkDetailPage() {
             {detail.collections.length ? (
               detail.collections.map((invoice) => {
                 const paymentRows = paymentRowsForInvoice(invoice);
-                const paymentTaxTotal = paymentRows.reduce((acc, payment) => acc + Number(payment.tax_loss_usd || 0), 0);
+                const paymentCollectedTotalArs = paymentRows.reduce((acc, payment) => acc + getCollectedArs(payment), 0);
+                const paymentCollectedTotalUsd = paymentRows.reduce((acc, payment) => acc + getCollectedUsd(payment), 0);
+                const paymentTaxTotalArs = paymentRows.reduce((acc, payment) => acc + getTaxArs(payment), 0);
+                const paymentTaxTotalUsd = paymentRows.reduce((acc, payment) => acc + getTaxUsd(payment), 0);
                 return (
                   <div
                     key={invoice.id}
@@ -365,11 +421,10 @@ export default function WorkDetailPage() {
                     </div>
 
                     <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
-                      <DetailField label="ARS factura" value={formatNumber(invoice.amount_ars)} />
-                      <DetailField label="USD factura" value={formatNumber(invoice.amount_usd)} />
-                      <DetailField label="USD cobrados" value={formatNumber(invoice.settled_total_usd)} />
-                      <DetailField label="USD pendientes" value={formatNumber(invoice.remaining_amount_usd)} />
-                      <DetailField label="USD impuestos" value={formatNumber(paymentTaxTotal)} />
+                      <MoneyField label="Factura" ars={invoice.amount_ars} usd={invoice.amount_usd} />
+                      <MoneyField label="Cobrado" ars={paymentCollectedTotalArs} usd={paymentCollectedTotalUsd} />
+                      <MoneyField label="Pendiente" ars={invoice.remaining_amount_ars} usd={invoice.remaining_amount_usd} />
+                      <MoneyField label="Impuestos / pérdida" ars={paymentTaxTotalArs} usd={paymentTaxTotalUsd} />
                     </div>
 
                     {invoice.related_jobs.length > 1 ? (
@@ -419,14 +474,9 @@ export default function WorkDetailPage() {
                             </div>
 
                             <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
-                              <DetailField
-                                label={`Cobrado ${payment.collected_currency || "USD"}`}
-                                value={
-                                  payment.collected_amount_original ? formatNumber(payment.collected_amount_original) : formatNumber(payment.amount_usd)
-                                }
-                              />
-                              <DetailField label="USD cobrados" value={formatNumber(payment.collected_amount_usd || payment.amount_usd)} />
-                              <DetailField label="USD impuestos" value={formatNumber(payment.tax_loss_usd)} />
+                              <MoneyField label="Cobrado" ars={getCollectedArs(payment)} usd={getCollectedUsd(payment)} />
+                              <MoneyField label="Impuestos / pérdida" ars={payment.tax_loss_ars} usd={payment.tax_loss_usd} />
+                              <MoneyField label="Tramo liquidado" ars={payment.amount_ars} usd={payment.amount_usd} />
                               <DetailField label="TC ARS/USD" value={payment.collected_fx_ars_usd ? formatNumber(payment.collected_fx_ars_usd, 4) : "-"} />
                             </div>
 

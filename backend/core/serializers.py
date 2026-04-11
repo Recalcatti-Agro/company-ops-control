@@ -22,6 +22,14 @@ from .models import (
 )
 
 
+def q2(value):
+    return Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def q4(value):
+    return Decimal(str(value or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField(write_only=True)
@@ -255,14 +263,32 @@ class JobCollectionSerializer(serializers.ModelSerializer):
         job = attrs.get("job", getattr(self.instance, "job", None))
         jobs = attrs.get("jobs", None)
         has_jobs = bool(jobs) if jobs is not None else bool(self.instance and self.instance.jobs.exists())
-        billed_amount = Decimal(str(attrs.get("amount_usd", getattr(self.instance, "amount_usd", 0)) or 0))
+        collection_date = attrs.get("collection_date", getattr(self.instance, "collection_date", None))
+        fx_input = attrs.get("fx_ars_usd", getattr(self.instance, "fx_ars_usd", None))
+        if fx_input is None and collection_date is not None:
+            fx_input, _ = get_ars_per_usd(collection_date)
+        fx = q4(fx_input or 0)
+        if fx <= Decimal("0"):
+            raise serializers.ValidationError({"fx_ars_usd": "Indicá TC ARS/USD válido."})
+
+        billed_amount_ars_raw = attrs.get("amount_ars", getattr(self.instance, "amount_ars", None))
+        billed_amount_usd_raw = attrs.get("amount_usd", getattr(self.instance, "amount_usd", None))
+        if billed_amount_ars_raw in (None, ""):
+            billed_amount_ars = q2((Decimal(str(billed_amount_usd_raw or 0)) * fx) if billed_amount_usd_raw not in (None, "") else 0)
+        else:
+            billed_amount_ars = q2(billed_amount_ars_raw)
+        billed_amount = q2(billed_amount_ars / fx) if billed_amount_ars > Decimal("0") else Decimal("0.00")
+
         status = attrs.get("status", getattr(self.instance, "status", None))
         collected_amount = attrs.get("collected_amount_usd", getattr(self.instance, "collected_amount_usd", None))
-        collected_currency = attrs.get("collected_currency", getattr(self.instance, "collected_currency", None))
         collected_original = attrs.get("collected_amount_original", getattr(self.instance, "collected_amount_original", None))
         collected_fx = attrs.get("collected_fx_ars_usd", getattr(self.instance, "collected_fx_ars_usd", None))
         converted_to_usd = attrs.get("converted_to_usd", getattr(self.instance, "converted_to_usd", True))
         parent_collection = attrs.get("parent_collection", getattr(self.instance, "parent_collection", None))
+
+        attrs["fx_ars_usd"] = fx
+        attrs["amount_ars"] = billed_amount_ars
+        attrs["amount_usd"] = billed_amount
 
         if parent_collection and not job:
             job = parent_collection.job
@@ -281,63 +307,50 @@ class JobCollectionSerializer(serializers.ModelSerializer):
         if parent_collection:
             if status != JobCollection.Status.COLLECTED:
                 raise serializers.ValidationError({"status": "Los cobros parciales deben quedar en estado Cobrado."})
-            if billed_amount <= Decimal("0"):
-                raise serializers.ValidationError({"amount_usd": "El tramo liquidado debe ser mayor a 0."})
-            available = collection_remaining_usd(
+            if billed_amount_ars <= Decimal("0"):
+                raise serializers.ValidationError({"amount_ars": "El tramo liquidado debe ser mayor a 0."})
+            available = collection_remaining_ars(
                 parent_collection,
                 exclude_partial_id=self.instance.id if self.instance and self.instance.parent_collection_id == parent_collection.id else None,
             )
-            if billed_amount > available:
+            if billed_amount_ars > available:
                 raise serializers.ValidationError(
-                    {"amount_usd": f"El tramo liquidado no puede superar el saldo pendiente ({available})."}
+                    {"amount_ars": f"El tramo liquidado no puede superar el saldo pendiente ({available})."}
                 )
 
         if status == JobCollection.Status.COLLECTED:
-            if collected_amount is None:
-                collected_amount = billed_amount
-            collected_amount = Decimal(str(collected_amount))
-            if collected_amount <= Decimal("0"):
-                raise serializers.ValidationError({"collected_amount_usd": "El monto cobrado debe ser mayor a 0."})
-            if not collected_currency:
-                collected_currency = Currency.USD
-            if collected_original is None:
-                collected_original = collected_amount
-            collected_original = Decimal(str(collected_original))
-            if collected_original <= Decimal("0"):
-                raise serializers.ValidationError({"collected_amount_original": "El monto cobrado original debe ser mayor a 0."})
-            if collected_currency == Currency.ARS:
-                if collected_fx is None:
-                    collected_fx = attrs.get("fx_ars_usd", getattr(self.instance, "fx_ars_usd", None))
-                collected_fx = Decimal(str(collected_fx or 0))
-                if collected_fx <= Decimal("0"):
-                    raise serializers.ValidationError({"collected_fx_ars_usd": "Para cobros en ARS, indicá TC ARS/USD válido."})
-                recalculated_usd = (collected_original / collected_fx).quantize(Decimal("0.01"))
-                if abs(recalculated_usd - collected_amount) > Decimal("0.01"):
-                    collected_amount = recalculated_usd
-                attrs["collected_fx_ars_usd"] = collected_fx.quantize(Decimal("0.0001"))
-                billed_ars = Decimal(str(attrs.get("amount_ars", getattr(self.instance, "amount_ars", 0)) or 0))
-                ars_shortfall = billed_ars - collected_original
-                if ars_shortfall < Decimal("0"):
-                    ars_shortfall = Decimal("0")
-                tax_loss = (ars_shortfall / collected_fx).quantize(Decimal("0.01"))
+            collected_fx = q4(collected_fx or fx)
+            if collected_fx <= Decimal("0"):
+                raise serializers.ValidationError({"collected_fx_ars_usd": "Indicá TC ARS/USD válido para el cobro."})
+            if collected_original not in (None, ""):
+                collected_ars = q2(collected_original)
+            elif collected_amount not in (None, ""):
+                collected_ars = q2(Decimal(str(collected_amount)) * collected_fx)
             else:
-                if collected_amount > billed_amount:
-                    raise serializers.ValidationError(
-                        {"collected_amount_usd": "El monto cobrado no puede superar el facturado."}
-                    )
-                attrs["collected_fx_ars_usd"] = None
-                tax_loss = (billed_amount - collected_amount).quantize(Decimal("0.01"))
-            attrs["collected_amount_usd"] = collected_amount.quantize(Decimal("0.01"))
-            attrs["collected_currency"] = collected_currency
-            attrs["collected_amount_original"] = collected_original.quantize(Decimal("0.01"))
+                collected_ars = billed_amount_ars
+            if collected_ars <= Decimal("0"):
+                raise serializers.ValidationError({"collected_amount_original": "El monto cobrado original debe ser mayor a 0."})
+            if collected_ars > billed_amount_ars:
+                raise serializers.ValidationError({"collected_amount_original": "El monto cobrado no puede superar el facturado."})
+
+            tax_loss_ars = billed_amount_ars - collected_ars
+            if tax_loss_ars < Decimal("0"):
+                tax_loss_ars = Decimal("0")
+
+            attrs["collected_amount_usd"] = q2(collected_ars / collected_fx)
+            attrs["collected_currency"] = Currency.ARS
+            attrs["collected_amount_original"] = collected_ars
+            attrs["collected_fx_ars_usd"] = collected_fx
             attrs["converted_to_usd"] = bool(converted_to_usd)
-            attrs["tax_loss_usd"] = tax_loss
+            attrs["tax_loss_ars"] = q2(tax_loss_ars)
+            attrs["tax_loss_usd"] = q2(tax_loss_ars / collected_fx) if tax_loss_ars > Decimal("0") else Decimal("0.00")
         else:
             attrs["collected_amount_usd"] = None
             attrs["collected_currency"] = None
             attrs["collected_amount_original"] = None
             attrs["collected_fx_ars_usd"] = None
             attrs["converted_to_usd"] = False
+            attrs["tax_loss_ars"] = Decimal("0.00")
             attrs["tax_loss_usd"] = Decimal("0.00")
         return attrs
 
@@ -399,18 +412,62 @@ class JobDistributionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Solo podés distribuir cobros en estado Cobrado.")
 
         kind = attrs.get("kind", getattr(self.instance, "kind", None))
-        amount = Decimal(str(attrs.get("amount_usd", getattr(self.instance, "amount_usd", 0)) or 0))
-        reinvest = Decimal(str(attrs.get("reinvest_to_cash_usd", getattr(self.instance, "reinvest_to_cash_usd", 0)) or 0))
         investor = attrs.get("investor", getattr(self.instance, "investor", None))
+        collection_fx = getattr(collection, "collected_fx_ars_usd", None) or getattr(collection, "fx_ars_usd", None)
+        fx = q4(attrs.get("fx_ars_usd", getattr(self.instance, "fx_ars_usd", None)) or collection_fx or 0)
+        if fx <= Decimal("0"):
+            raise serializers.ValidationError({"fx_ars_usd": "Indicá TC ARS/USD válido para la distribución."})
+
+        amount_ars = attrs.get("amount_ars", getattr(self.instance, "amount_ars", None))
+        amount_usd = attrs.get("amount_usd", getattr(self.instance, "amount_usd", None))
+        if amount_ars in (None, ""):
+            amount = q2(Decimal(str(amount_usd or 0)) * fx) if amount_usd not in (None, "") else Decimal("0.00")
+        else:
+            amount = q2(amount_ars)
+
+        reinvest_ars = attrs.get("reinvest_to_cash_ars", getattr(self.instance, "reinvest_to_cash_ars", None))
+        reinvest_usd = attrs.get("reinvest_to_cash_usd", getattr(self.instance, "reinvest_to_cash_usd", None))
+        if reinvest_ars in (None, ""):
+            reinvest = q2(Decimal(str(reinvest_usd or 0)) * fx) if reinvest_usd not in (None, "") else Decimal("0.00")
+        else:
+            reinvest = q2(reinvest_ars)
+
+        work_amount_ars = attrs.get("work_amount_ars", getattr(self.instance, "work_amount_ars", None))
+        work_amount_usd = attrs.get("work_amount_usd", getattr(self.instance, "work_amount_usd", None))
+        shareholder_amount_ars = attrs.get("shareholder_amount_ars", getattr(self.instance, "shareholder_amount_ars", None))
+        shareholder_amount_usd = attrs.get("shareholder_amount_usd", getattr(self.instance, "shareholder_amount_usd", None))
+
+        resolved_work_amount_ars = (
+            q2(work_amount_ars)
+            if work_amount_ars not in (None, "")
+            else q2(Decimal(str(work_amount_usd or 0)) * fx) if work_amount_usd not in (None, "") else Decimal("0.00")
+        )
+        resolved_shareholder_amount_ars = (
+            q2(shareholder_amount_ars)
+            if shareholder_amount_ars not in (None, "")
+            else q2(Decimal(str(shareholder_amount_usd or 0)) * fx) if shareholder_amount_usd not in (None, "") else Decimal("0.00")
+        )
 
         if reinvest < Decimal("0"):
-            raise serializers.ValidationError({"reinvest_to_cash_usd": "No puede ser negativo."})
+            raise serializers.ValidationError({"reinvest_to_cash_ars": "No puede ser negativo."})
         if reinvest > amount:
-            raise serializers.ValidationError({"reinvest_to_cash_usd": "No puede superar el monto USD asignado."})
+            raise serializers.ValidationError({"reinvest_to_cash_ars": "No puede superar el monto ARS asignado."})
         if kind == JobDistribution.Kind.SHAREHOLDER and not investor:
             raise serializers.ValidationError({"investor": "En distribuciones accionista debés indicar inversor."})
         if kind != JobDistribution.Kind.SHAREHOLDER and reinvest > Decimal("0"):
-            raise serializers.ValidationError({"reinvest_to_cash_usd": "Solo aplica a tipo Accionista."})
+            raise serializers.ValidationError({"reinvest_to_cash_ars": "Solo aplica a tipo Accionista."})
+
+        attrs["fx_ars_usd"] = fx
+        attrs["amount_ars"] = amount
+        attrs["amount_usd"] = q2(amount / fx) if amount > Decimal("0") else Decimal("0.00")
+        attrs["work_amount_ars"] = resolved_work_amount_ars
+        attrs["work_amount_usd"] = q2(resolved_work_amount_ars / fx) if resolved_work_amount_ars > Decimal("0") else Decimal("0.00")
+        attrs["shareholder_amount_ars"] = resolved_shareholder_amount_ars
+        attrs["shareholder_amount_usd"] = (
+            q2(resolved_shareholder_amount_ars / fx) if resolved_shareholder_amount_ars > Decimal("0") else Decimal("0.00")
+        )
+        attrs["reinvest_to_cash_ars"] = reinvest
+        attrs["reinvest_to_cash_usd"] = q2(reinvest / fx) if reinvest > Decimal("0") else Decimal("0.00")
         return attrs
 
 

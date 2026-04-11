@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -48,6 +49,92 @@ type DashboardResponse = {
   }>;
   monthly_data: Array<{ month: string; expenses: number; gains: number; billed: number }>;
 };
+
+function SnapshotCard({
+  label,
+  accent,
+  value,
+  helper,
+  children,
+}: {
+  label: string;
+  accent: string;
+  value?: string;
+  helper?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <section
+      className="card"
+      style={{
+        display: "grid",
+        gap: 16,
+        minHeight: 180,
+        alignContent: "space-between",
+        position: "relative",
+        overflow: "hidden",
+        containerType: "inline-size",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          inset: "0 0 auto 0",
+          height: 4,
+          background: accent,
+        }}
+      />
+      <div style={{ display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+          <p
+            className="small"
+            style={{
+              margin: 0,
+              opacity: 0.72,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              fontWeight: 700,
+              fontSize: 11,
+            }}
+          >
+            {label}
+          </p>
+          <span
+            aria-hidden="true"
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: 999,
+              background: accent,
+              flexShrink: 0,
+              marginTop: 2,
+            }}
+          />
+        </div>
+        {value ? (
+          <div
+            style={{
+              fontSize: "clamp(22px, 12cqi, 34px)",
+              fontWeight: 800,
+              letterSpacing: "-0.03em",
+              lineHeight: 1,
+              whiteSpace: "nowrap",
+              minWidth: 0,
+            }}
+          >
+            {value}
+          </div>
+        ) : null}
+        {children}
+      </div>
+      {helper ? (
+        <p className="small" style={{ margin: 0, lineHeight: 1.45, opacity: 0.78 }}>
+          {helper}
+        </p>
+      ) : null}
+    </section>
+  );
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -107,25 +194,73 @@ export default function DashboardPage() {
       ) : null}
 
       {/* Snapshot financiero: caja + posición */}
-      <div className="grid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
-        <section className="card">
-          <p className="small" style={{ margin: "0 0 4px", opacity: 0.6 }}>Caja USD</p>
-          <div className="kpi">U$S {fmt(data.cash_balance_usd)}</div>
-        </section>
-        <section className="card">
-          <p className="small" style={{ margin: "0 0 4px", opacity: 0.6 }}>Caja ARS</p>
-          <div className="kpi">$ {fmt(data.cash_balance_ars, 0)}</div>
-        </section>
-        <section className="card">
-          <p className="small" style={{ margin: "0 0 4px", opacity: 0.6 }}>Capital accionario</p>
-          <div className="kpi">U$S {fmt(data.total_capital)}</div>
-          <p className="small" style={{ margin: "6px 0 0", opacity: 0.45 }}>Aportes + reinv. + gastos − rescates</p>
-        </section>
-        <section className="card">
-          <p className="small" style={{ margin: "0 0 4px", opacity: 0.6 }}>Saldo de caja (equiv. USD)</p>
-          <div className="kpi">U$S {fmt(data.cash_balance)}</div>
-          <p className="small" style={{ margin: "6px 0 0", opacity: 0.45 }}>Ingresos menos egresos de caja</p>
-        </section>
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", alignItems: "stretch" }}>
+        <SnapshotCard
+          label="Caja Total"
+          accent="linear-gradient(90deg, #0f766e, #14b8a6)"
+          value={`U$S ${fmt(data.cash_balance)}`}
+          helper="Equivalente USD consolidado de toda la caja disponible."
+        />
+        <SnapshotCard
+          label="Caja Por Moneda"
+          accent="linear-gradient(90deg, #1d4ed8, #38bdf8)"
+          helper="Saldo inmediato separado por moneda operativa."
+        >
+          <div
+            style={{
+              display: "grid",
+              gap: 10,
+              padding: 12,
+              border: "1px solid var(--line)",
+              borderRadius: 14,
+              background: "var(--surface)",
+            }}
+          >
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "baseline" }}>
+              <span className="small" style={{ margin: 0, opacity: 0.72, fontWeight: 600 }}>
+                USD
+              </span>
+              <strong
+                style={{
+                  fontSize: "clamp(20px, 10cqi, 26px)",
+                  letterSpacing: "-0.02em",
+                  whiteSpace: "nowrap",
+                  minWidth: 0,
+                }}
+              >
+                {`U$S ${fmt(data.cash_balance_usd)}`}
+              </strong>
+            </div>
+            <div style={{ height: 1, background: "var(--line)" }} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "baseline" }}>
+              <span className="small" style={{ margin: 0, opacity: 0.72, fontWeight: 600 }}>
+                ARS
+              </span>
+              <strong
+                style={{
+                  fontSize: "clamp(20px, 10cqi, 26px)",
+                  letterSpacing: "-0.02em",
+                  whiteSpace: "nowrap",
+                  minWidth: 0,
+                }}
+              >
+                {`$ ${fmt(data.cash_balance_ars, 0)}`}
+              </strong>
+            </div>
+          </div>
+        </SnapshotCard>
+        <SnapshotCard
+          label="Capital Accionario"
+          accent="linear-gradient(90deg, #7c3aed, #a855f7)"
+          value={`U$S ${fmt(data.total_capital)}`}
+          helper="Aportes directos, gastos cubiertos y reinversiones, netos de rescates."
+        />
+        <SnapshotCard
+          label="Reinversiones"
+          accent="linear-gradient(90deg, #b45309, #f59e0b)"
+          value={`U$S ${fmt(data.total_reinvestments)}`}
+          helper="Capital que volvió a caja desde distribuciones ya liquidadas."
+        />
       </div>
 
       {/* Pipeline + Compromisos */}

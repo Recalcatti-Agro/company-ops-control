@@ -63,11 +63,46 @@ def make_job(on_date=date(2024, 1, 15), status=Job.Status.DONE):
     return Job.objects.create(date=on_date, status=status)
 
 
-def make_collection(amount_usd, on_date=date(2024, 2, 1), status=JobCollection.Status.COLLECTED, collected_amount_usd=None):
+def make_collection(
+    amount_usd,
+    on_date=date(2024, 2, 1),
+    status=JobCollection.Status.COLLECTED,
+    collected_amount_usd=None,
+    fx_ars_usd=Decimal("1000.0000"),
+    amount_ars=None,
+    collected_amount_ars=None,
+):
+    resolved_amount_usd = Decimal(str(amount_usd or 0))
+    resolved_amount_ars = amount_ars if amount_ars is not None else (resolved_amount_usd * fx_ars_usd)
+    resolved_collected_ars = None
+    if collected_amount_ars is not None:
+        resolved_collected_ars = collected_amount_ars
+    elif collected_amount_usd is not None:
+        resolved_collected_ars = Decimal(str(collected_amount_usd)) * fx_ars_usd
+    resolved_collected_usd = None
+    if collected_amount_usd is not None:
+        resolved_collected_usd = Decimal(str(collected_amount_usd))
+    elif resolved_collected_ars is not None:
+        resolved_collected_usd = resolved_collected_ars / fx_ars_usd
+    tax_loss_ars = Decimal("0.00")
+    tax_loss_usd = Decimal("0.00")
+    if status == JobCollection.Status.COLLECTED and resolved_collected_ars is not None:
+        tax_loss_ars = resolved_amount_ars - resolved_collected_ars
+        if tax_loss_ars < Decimal("0"):
+            tax_loss_ars = Decimal("0.00")
+        tax_loss_usd = tax_loss_ars / fx_ars_usd if fx_ars_usd else Decimal("0.00")
+
     return JobCollection.objects.create(
         collection_date=on_date,
-        amount_usd=amount_usd,
-        collected_amount_usd=collected_amount_usd,
+        amount_ars=resolved_amount_ars,
+        fx_ars_usd=fx_ars_usd,
+        amount_usd=resolved_amount_usd,
+        collected_currency=Currency.ARS if status == JobCollection.Status.COLLECTED else None,
+        collected_amount_original=resolved_collected_ars if status == JobCollection.Status.COLLECTED else None,
+        collected_fx_ars_usd=fx_ars_usd if status == JobCollection.Status.COLLECTED else None,
+        collected_amount_usd=resolved_collected_usd,
+        tax_loss_ars=tax_loss_ars,
+        tax_loss_usd=tax_loss_usd,
         status=status,
     )
 
@@ -266,15 +301,24 @@ class BuildDistributionPlanTest(TestCase):
             worker_investor_ids=[inv_a.id],
         )
 
+        self.assertEqual(plan["target_ars"], Decimal("100000.00"))
+        self.assertEqual(plan["field_team_total_ars"], Decimal("20000.00"))
+        self.assertEqual(plan["shareholder_total_ars"], Decimal("80000.00"))
         self.assertEqual(plan["field_team_total_usd"], Decimal("20.00"))
         self.assertEqual(plan["shareholder_total_usd"], Decimal("80.00"))
 
         rows = {r["investor_id"]: r for r in plan["investor_rows"]}
         # Ana: $20 field team + $48 shareholder (60% of $80)
+        self.assertEqual(rows[inv_a.id]["worker_amount_ars"], Decimal("20000.00"))
+        self.assertEqual(rows[inv_a.id]["shareholder_amount_ars"], Decimal("48000.00"))
+        self.assertEqual(rows[inv_a.id]["total_amount_ars"], Decimal("68000.00"))
         self.assertEqual(rows[inv_a.id]["worker_amount_usd"], Decimal("20.00"))
         self.assertEqual(rows[inv_a.id]["shareholder_amount_usd"], Decimal("48.00"))
         self.assertEqual(rows[inv_a.id]["total_amount_usd"], Decimal("68.00"))
         # Bruno: $0 field team + $32 shareholder (40% of $80)
+        self.assertEqual(rows[inv_b.id]["worker_amount_ars"], Decimal("0.00"))
+        self.assertEqual(rows[inv_b.id]["shareholder_amount_ars"], Decimal("32000.00"))
+        self.assertEqual(rows[inv_b.id]["total_amount_ars"], Decimal("32000.00"))
         self.assertEqual(rows[inv_b.id]["worker_amount_usd"], Decimal("0.00"))
         self.assertEqual(rows[inv_b.id]["shareholder_amount_usd"], Decimal("32.00"))
         self.assertEqual(rows[inv_b.id]["total_amount_usd"], Decimal("32.00"))
@@ -311,8 +355,10 @@ class BuildDistributionPlanTest(TestCase):
 
         field_team_rows = {row["investor_id"]: row for row in plan["field_team_rows"]}
         self.assertEqual(field_team_rows[inv_a.id]["worker_percentage"], Decimal("15.00"))
+        self.assertEqual(field_team_rows[inv_a.id]["amount_ars"], Decimal("15000.00"))
         self.assertEqual(field_team_rows[inv_a.id]["amount_usd"], Decimal("15.00"))
         self.assertEqual(field_team_rows[inv_b.id]["worker_percentage"], Decimal("5.00"))
+        self.assertEqual(field_team_rows[inv_b.id]["amount_ars"], Decimal("5000.00"))
         self.assertEqual(field_team_rows[inv_b.id]["amount_usd"], Decimal("5.00"))
 
     def test_raises_if_worker_percentages_do_not_sum_field_team_percentage(self):
@@ -799,9 +845,9 @@ class JobCollectionMarkCollectedActionTest(TestCase):
         request = self.factory.post(
             f"/job-collections/{billed.id}/mark-collected/",
             {
-                "collected_amount_usd": "30.00",
-                "collected_currency": "USD",
-                "collected_amount_original": "30.00",
+                "collected_amount_original": "30000.00",
+                "collected_currency": "ARS",
+                "collected_fx_ars_usd": "1000.0000",
                 "collection_date": "2024-02-10",
             },
             format="json",
@@ -816,8 +862,11 @@ class JobCollectionMarkCollectedActionTest(TestCase):
         partials = list(billed.partial_collections.order_by("id"))
         self.assertEqual(len(partials), 1)
         self.assertEqual(partials[0].status, JobCollection.Status.COLLECTED)
+        self.assertEqual(partials[0].amount_ars, Decimal("30000.00"))
         self.assertEqual(partials[0].amount_usd, Decimal("30.00"))
+        self.assertEqual(partials[0].collected_amount_original, Decimal("30000.00"))
         self.assertEqual(partials[0].collected_amount_usd, Decimal("30.00"))
+        self.assertEqual(partials[0].tax_loss_ars, Decimal("0.00"))
         self.assertEqual(collection_remaining_usd(billed), Decimal("70.00"))
         self.assertEqual(job.status, Job.Status.INVOICED)
 
@@ -831,9 +880,9 @@ class JobCollectionMarkCollectedActionTest(TestCase):
         request = self.factory.post(
             f"/job-collections/{billed.id}/mark-collected/",
             {
-                "collected_amount_usd": "95.00",
-                "collected_currency": "USD",
-                "collected_amount_original": "95.00",
+                "collected_amount_original": "95000.00",
+                "collected_currency": "ARS",
+                "collected_fx_ars_usd": "1000.0000",
                 "close_remaining": True,
                 "collection_date": "2024-02-10",
             },
@@ -847,8 +896,11 @@ class JobCollectionMarkCollectedActionTest(TestCase):
         billed.refresh_from_db()
         job.refresh_from_db()
         partial = billed.partial_collections.get()
+        self.assertEqual(partial.amount_ars, Decimal("100000.00"))
         self.assertEqual(partial.amount_usd, Decimal("100.00"))
+        self.assertEqual(partial.collected_amount_original, Decimal("95000.00"))
         self.assertEqual(partial.collected_amount_usd, Decimal("95.00"))
+        self.assertEqual(partial.tax_loss_ars, Decimal("5000.00"))
         self.assertEqual(partial.tax_loss_usd, Decimal("5.00"))
         self.assertEqual(collection_remaining_usd(billed), Decimal("0.00"))
         self.assertEqual(job.status, Job.Status.COLLECTED)
@@ -932,21 +984,27 @@ class JobDetailActionTest(TestCase):
         self.assertEqual(response.data["job"]["id"], job.id)
         self.assertEqual(response.data["summary"]["invoice_count"], 1)
         self.assertEqual(response.data["summary"]["payment_count"], 1)
+        self.assertEqual(response.data["summary"]["invoiced_total_ars"], "100000.00")
         self.assertEqual(response.data["summary"]["invoiced_total_usd"], "100.00")
+        self.assertEqual(response.data["summary"]["collected_total_ars"], "40000.00")
         self.assertEqual(response.data["summary"]["collected_total_usd"], "40.00")
+        self.assertEqual(response.data["summary"]["remaining_total_ars"], "60000.00")
         self.assertEqual(response.data["summary"]["remaining_total_usd"], "60.00")
+        self.assertEqual(response.data["summary"]["tax_loss_total_ars"], "0.00")
         self.assertEqual(response.data["summary"]["tax_loss_total_usd"], "0.00")
 
         self.assertEqual(len(response.data["collections"]), 1)
         invoice = response.data["collections"][0]
         self.assertEqual(invoice["collection_type"], "INVOICE")
         self.assertEqual(invoice["display_status"], "PARTIAL")
+        self.assertEqual(invoice["remaining_amount_ars"], "60000.00")
         self.assertEqual(invoice["remaining_amount_usd"], "60.00")
         self.assertEqual(len(invoice["related_jobs"]), 2)
         self.assertEqual(len(invoice["partial_collections"]), 1)
 
         payment = invoice["partial_collections"][0]
         self.assertEqual(payment["collection_type"], "PAYMENT")
+        self.assertEqual(payment["collected_amount_original"], "40000.00")
         self.assertEqual(payment["collected_amount_usd"], "40.00")
         self.assertEqual(len(payment["distributions"]), 2)
         self.assertEqual({row["kind"] for row in payment["distributions"]}, {"FIELD_TEAM", "SHAREHOLDER"})

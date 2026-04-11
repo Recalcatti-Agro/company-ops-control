@@ -15,7 +15,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .collection_utils import collection_has_open_balance, collection_remaining_ars, collection_remaining_usd, collection_settled_slice_ars
+from .collection_utils import collection_has_open_balance, collection_remaining_ars, collection_remaining_usd
 from .fx_service import get_ars_per_usd
 from .models import (
     CapitalContribution,
@@ -67,6 +67,22 @@ def _collection_work_reference_date(collection: JobCollection) -> date:
     return max(work_dates)
 
 
+def _collection_collected_ars(collection: JobCollection) -> Decimal:
+    if collection.collected_currency == Currency.ARS and collection.collected_amount_original is not None:
+        return _q2(collection.collected_amount_original)
+
+    fx = collection.collected_fx_ars_usd or collection.fx_ars_usd or Decimal("0")
+    if fx > Decimal("0") and collection.collected_amount_usd is not None:
+        return _q2(collection.collected_amount_usd * fx)
+
+    amount_ars = _q2(collection.amount_ars or Decimal("0"))
+    tax_loss_ars = _q2(collection.tax_loss_ars or Decimal("0"))
+    collected_ars = amount_ars - tax_loss_ars
+    if collected_ars < Decimal("0"):
+        collected_ars = Decimal("0")
+    return _q2(collected_ars)
+
+
 def _job_related_collections(job: Job) -> list[JobCollection]:
     partial_qs = (
         JobCollection.objects.select_related("job", "parent_collection")
@@ -114,9 +130,14 @@ def _serialize_job_distribution(distribution: JobDistribution) -> dict:
         "investor_id": distribution.investor_id,
         "investor_name": distribution.investor.name if distribution.investor_id else None,
         "percentage": str(distribution.percentage) if distribution.percentage is not None else None,
+        "fx_ars_usd": str(distribution.fx_ars_usd) if distribution.fx_ars_usd is not None else None,
+        "amount_ars": str(_q2(distribution.amount_ars or Decimal("0"))),
         "amount_usd": str(_q2(distribution.amount_usd or Decimal("0"))),
+        "work_amount_ars": str(_q2(distribution.work_amount_ars or Decimal("0"))),
         "work_amount_usd": str(_q2(distribution.work_amount_usd or Decimal("0"))),
+        "shareholder_amount_ars": str(_q2(distribution.shareholder_amount_ars or Decimal("0"))),
         "shareholder_amount_usd": str(_q2(distribution.shareholder_amount_usd or Decimal("0"))),
+        "reinvest_to_cash_ars": str(_q2(distribution.reinvest_to_cash_ars or Decimal("0"))),
         "reinvest_to_cash_usd": str(_q2(distribution.reinvest_to_cash_usd or Decimal("0"))),
         "notes": distribution.notes,
     }
@@ -125,6 +146,11 @@ def _serialize_job_distribution(distribution: JobDistribution) -> dict:
 def _serialize_job_collection_detail(collection: JobCollection, *, include_partials: bool = True) -> dict:
     remaining_amount_usd = collection_remaining_usd(collection)
     remaining_amount_ars = collection_remaining_ars(collection)
+    settled_total_ars = (
+        _q2((collection.amount_ars or Decimal("0")) - remaining_amount_ars)
+        if not collection.parent_collection_id
+        else _collection_collected_ars(collection)
+    )
     settled_total_usd = (
         _q2((collection.amount_usd or Decimal("0")) - remaining_amount_usd)
         if not collection.parent_collection_id
@@ -140,6 +166,7 @@ def _serialize_job_collection_detail(collection: JobCollection, *, include_parti
         "collection_date": collection.collection_date.isoformat(),
         "status": collection.status,
         "amount_ars": str(_q2(collection.amount_ars or Decimal("0"))),
+        "fx_ars_usd": str(collection.fx_ars_usd) if collection.fx_ars_usd is not None else None,
         "amount_usd": str(_q2(collection.amount_usd or Decimal("0"))),
         "collected_currency": collection.collected_currency,
         "collected_amount_original": (
@@ -148,9 +175,11 @@ def _serialize_job_collection_detail(collection: JobCollection, *, include_parti
         "collected_fx_ars_usd": str(collection.collected_fx_ars_usd) if collection.collected_fx_ars_usd is not None else None,
         "converted_to_usd": bool(collection.converted_to_usd),
         "collected_amount_usd": str(_q2(collection.collected_amount_usd)) if collection.collected_amount_usd is not None else None,
+        "tax_loss_ars": str(_q2(collection.tax_loss_ars or Decimal("0"))),
         "tax_loss_usd": str(_q2(collection.tax_loss_usd or Decimal("0"))),
         "remaining_amount_usd": str(remaining_amount_usd),
         "remaining_amount_ars": str(remaining_amount_ars),
+        "settled_total_ars": str(settled_total_ars),
         "settled_total_usd": str(settled_total_usd),
         "notes": collection.notes,
         "related_jobs": [_serialize_job_reference(job) for job in _collection_jobs(collection)],
@@ -165,9 +194,13 @@ def _job_detail_payload(job: Job) -> dict:
     related_collections = _job_related_collections(job)
     root_collections = [collection for collection in related_collections if not collection.parent_collection_id]
 
+    invoiced_total_ars = Decimal("0")
     invoiced_total_usd = Decimal("0")
+    collected_total_ars = Decimal("0")
     collected_total_usd = Decimal("0")
+    remaining_total_ars = Decimal("0")
     remaining_total_usd = Decimal("0")
+    tax_loss_total_ars = Decimal("0")
     tax_loss_total_usd = Decimal("0")
     payment_count = 0
     timeline: list[dict] = [
@@ -195,7 +228,9 @@ def _job_detail_payload(job: Job) -> dict:
     collections_data = []
     for collection in root_collections:
         collections_data.append(_serialize_job_collection_detail(collection))
+        invoiced_total_ars += _q2(collection.amount_ars or Decimal("0"))
         invoiced_total_usd += _q2(collection.amount_usd or Decimal("0"))
+        remaining_total_ars += collection_remaining_ars(collection)
         remaining_total_usd += collection_remaining_usd(collection)
 
         related_jobs = _collection_jobs(collection)
@@ -205,7 +240,10 @@ def _job_detail_payload(job: Job) -> dict:
                 "date": collection.collection_date.isoformat(),
                 "kind": "INVOICE",
                 "label": "Facturado",
-                "detail": f"USD {str(_q2(collection.amount_usd or Decimal('0')))}{shared_label}",
+                "detail": (
+                    f"ARS {str(_q2(collection.amount_ars or Decimal('0')))}"
+                    f" · USD {str(_q2(collection.amount_usd or Decimal('0')))}{shared_label}"
+                ),
                 "notes": collection.notes,
                 "_sort": 3,
             }
@@ -217,13 +255,18 @@ def _job_detail_payload(job: Job) -> dict:
 
         payment_count += len(payments)
         for payment in payments:
+            collected_total_ars += _collection_collected_ars(payment)
             collected_total_usd += _q2(payment.collected_amount_usd or payment.amount_usd or Decimal("0"))
+            tax_loss_total_ars += _q2(payment.tax_loss_ars or Decimal("0"))
             tax_loss_total_usd += _q2(payment.tax_loss_usd or Decimal("0"))
 
             detail_parts = []
-            if payment.collected_amount_original is not None and payment.collected_currency:
-                detail_parts.append(f"{payment.collected_currency} {str(_q2(payment.collected_amount_original))}")
+            collected_ars = _collection_collected_ars(payment)
+            if collected_ars > Decimal("0"):
+                detail_parts.append(f"ARS {str(collected_ars)}")
             detail_parts.append(f"USD {str(_q2(payment.collected_amount_usd or payment.amount_usd or Decimal('0')))}")
+            if _q2(payment.tax_loss_ars or Decimal("0")) > Decimal("0"):
+                detail_parts.append(f"Impuestos ARS {str(_q2(payment.tax_loss_ars))}")
             if _q2(payment.tax_loss_usd or Decimal("0")) > Decimal("0"):
                 detail_parts.append(f"Impuestos USD {str(_q2(payment.tax_loss_usd))}")
 
@@ -247,9 +290,13 @@ def _job_detail_payload(job: Job) -> dict:
         "summary": {
             "invoice_count": len(root_collections),
             "payment_count": payment_count,
+            "invoiced_total_ars": str(_q2(invoiced_total_ars)),
             "invoiced_total_usd": str(_q2(invoiced_total_usd)),
+            "collected_total_ars": str(_q2(collected_total_ars)),
             "collected_total_usd": str(_q2(collected_total_usd)),
+            "remaining_total_ars": str(_q2(remaining_total_ars)),
             "remaining_total_usd": str(_q2(remaining_total_usd)),
+            "tax_loss_total_ars": str(_q2(tax_loss_total_ars)),
             "tax_loss_total_usd": str(_q2(tax_loss_total_usd)),
         },
         "collections": collections_data,
@@ -361,6 +408,25 @@ def _parse_worker_percentages(raw_worker_percentages) -> dict[int, Decimal]:
     return parsed
 
 
+def _collection_distribution_fx(collection: JobCollection) -> Decimal:
+    fx = collection.collected_fx_ars_usd or collection.fx_ars_usd or Decimal("0")
+    return Decimal(str(fx or 0)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+
+def _collection_distributable_ars(collection: JobCollection) -> Decimal:
+    if collection.status != JobCollection.Status.COLLECTED:
+        return Decimal("0.00")
+    if collection.collected_currency == Currency.ARS and collection.collected_amount_original is not None:
+        return _q2(collection.collected_amount_original)
+
+    fx = _collection_distribution_fx(collection)
+    if fx > Decimal("0") and collection.collected_amount_usd is not None:
+        return _q2(collection.collected_amount_usd * fx)
+    if collection.amount_ars:
+        return _q2(collection.amount_ars)
+    return Decimal("0.00")
+
+
 def _resolve_field_team_percentage(raw_field_team_percentage, worker_percentages: dict[int, Decimal]) -> Decimal:
     if raw_field_team_percentage not in (None, ""):
         try:
@@ -434,7 +500,14 @@ def _build_distribution_plan(
     if collection.status != JobCollection.Status.COLLECTED:
         raise ApiValidationError("Solo podés distribuir cobros en estado Cobrado.")
 
-    target = _q2(collection.collected_amount_usd or collection.amount_usd or Decimal("0"))
+    fx = _collection_distribution_fx(collection)
+    if fx <= Decimal("0"):
+        raise ApiValidationError("El cobro no tiene TC ARS/USD válido para distribuir.")
+
+    target_ars = _collection_distributable_ars(collection)
+    if target_ars <= Decimal("0"):
+        raise ApiValidationError("El cobro no tiene monto ARS disponible para distribuir.")
+    target = _q2(target_ars / fx)
     if target <= Decimal("0"):
         raise ApiValidationError("El cobro no tiene monto disponible para distribuir.")
 
@@ -444,8 +517,10 @@ def _build_distribution_plan(
     if field_team_percentage > Decimal("0") and not worker_investor_ids:
         raise ApiValidationError("Indicá al menos una persona para equipo de campo.")
 
-    field_team_total = _q2(target * field_team_percentage / Decimal("100"))
-    shareholder_total = _q2(target - field_team_total)
+    field_team_total_ars = _q2(target_ars * field_team_percentage / Decimal("100"))
+    shareholder_total_ars = _q2(target_ars - field_team_total_ars)
+    field_team_total = _q2(field_team_total_ars / fx)
+    shareholder_total = _q2(shareholder_total_ars / fx)
 
     if worker_percentages:
         missing = [iid for iid in worker_investor_ids if iid not in worker_percentages]
@@ -464,7 +539,7 @@ def _build_distribution_plan(
         worker_weights = [(iid, Decimal("1")) for iid in worker_investor_ids]
 
     worker_alloc = _alloc_by_weights(
-        field_team_total,
+        field_team_total_ars,
         worker_weights,
     )
     worker_percentage_alloc = _alloc_by_weights(field_team_percentage, worker_weights)
@@ -473,7 +548,8 @@ def _build_distribution_plan(
             "investor_id": iid,
             "investor_name": active_investor_map[iid].name,
             "worker_percentage": worker_percentage_alloc.get(iid, Decimal("0.00")),
-            "amount_usd": worker_alloc.get(iid, Decimal("0.00")),
+            "amount_ars": worker_alloc.get(iid, Decimal("0.00")),
+            "amount_usd": _q2(worker_alloc.get(iid, Decimal("0.00")) / fx),
         }
         for iid in worker_investor_ids
     ]
@@ -481,23 +557,24 @@ def _build_distribution_plan(
     percentage_reference_date = _collection_work_reference_date(collection)
     snapshot = _investor_capital_snapshot(percentage_reference_date)
     shareholder_alloc = _alloc_by_weights(
-        shareholder_total,
+        shareholder_total_ars,
         [(row["investor"].id, row["company_percentage"]) for row in snapshot],
     )
     shareholder_rows = []
-    worker_by_investor = {row["investor_id"]: row["amount_usd"] for row in field_team_rows}
+    worker_by_investor = {row["investor_id"]: row["amount_ars"] for row in field_team_rows}
     investor_rows = []
     for row in snapshot:
         investor = row["investor"]
-        shareholder_amount = shareholder_alloc.get(investor.id, Decimal("0.00"))
-        worker_amount = worker_by_investor.get(investor.id, Decimal("0.00"))
-        total_amount = _q2(shareholder_amount + worker_amount)
+        shareholder_amount_ars = shareholder_alloc.get(investor.id, Decimal("0.00"))
+        worker_amount_ars = worker_by_investor.get(investor.id, Decimal("0.00"))
+        total_amount_ars = _q2(shareholder_amount_ars + worker_amount_ars)
         shareholder_rows.append(
             {
                 "investor_id": investor.id,
                 "investor_name": investor.name,
                 "company_percentage": row["company_percentage"] * Decimal("100"),
-                "amount_usd": shareholder_amount,
+                "amount_ars": shareholder_amount_ars,
+                "amount_usd": _q2(shareholder_amount_ars / fx),
             }
         )
         investor_rows.append(
@@ -505,17 +582,24 @@ def _build_distribution_plan(
                 "investor_id": investor.id,
                 "investor_name": investor.name,
                 "company_percentage": row["company_percentage"] * Decimal("100"),
-                "worker_amount_usd": worker_amount,
-                "shareholder_amount_usd": shareholder_amount,
-                "total_amount_usd": total_amount,
+                "worker_amount_ars": worker_amount_ars,
+                "worker_amount_usd": _q2(worker_amount_ars / fx),
+                "shareholder_amount_ars": shareholder_amount_ars,
+                "shareholder_amount_usd": _q2(shareholder_amount_ars / fx),
+                "total_amount_ars": total_amount_ars,
+                "total_amount_usd": _q2(total_amount_ars / fx),
             }
         )
 
     return {
         "collection_id": collection.id,
+        "fx_ars_usd": fx,
+        "target_ars": target_ars,
         "target_usd": target,
         "field_team_percentage": field_team_percentage,
+        "field_team_total_ars": field_team_total_ars,
         "field_team_total_usd": field_team_total,
+        "shareholder_total_ars": shareholder_total_ars,
         "shareholder_total_usd": shareholder_total,
         "percentage_reference_date": percentage_reference_date,
         "field_team_rows": field_team_rows,
@@ -794,9 +878,10 @@ def _materialize_collection_settlement_side_effects(collection: JobCollection) -
     keep_cash_in_ars = collection.collected_currency == Currency.ARS and not bool(collection.converted_to_usd)
     fx_for_ars = collection.collected_fx_ars_usd or collection.fx_ars_usd
 
-    def create_reinvestment_movement(investor: Investor, amount_usd: Decimal) -> None:
+    def create_reinvestment_movement(investor: Investor, amount_ars: Decimal, amount_usd: Decimal) -> None:
+        amount_ars = (amount_ars or Decimal("0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         amount_usd = (amount_usd or Decimal("0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if amount_usd <= Decimal("0"):
+        if amount_ars <= Decimal("0") and amount_usd <= Decimal("0"):
             return
 
         currency = Currency.USD
@@ -805,7 +890,7 @@ def _materialize_collection_settlement_side_effects(collection: JobCollection) -
         if keep_cash_in_ars and fx_for_ars and fx_for_ars > Decimal("0"):
             currency = Currency.ARS
             fx_value = fx_for_ars.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-            amount_original = (amount_usd * fx_value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            amount_original = amount_ars if amount_ars > Decimal("0") else (amount_usd * fx_value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
         movement = CashMovement.objects.create(
             date=collection.collection_date,
@@ -822,21 +907,23 @@ def _materialize_collection_settlement_side_effects(collection: JobCollection) -
 
     # Caja refleja solo reinversión efectiva por socio.
     for distribution in distributions:
-        dist_amount = distribution.amount_usd or Decimal("0")
-        reinvest = distribution.reinvest_to_cash_usd or Decimal("0")
+        dist_amount_ars = distribution.amount_ars or Decimal("0")
+        dist_amount_usd = distribution.amount_usd or Decimal("0")
+        reinvest_ars = distribution.reinvest_to_cash_ars or Decimal("0")
+        reinvest_usd = distribution.reinvest_to_cash_usd or Decimal("0")
 
-        if distribution.kind == JobDistribution.Kind.SHAREHOLDER and distribution.investor_id and reinvest > Decimal("0"):
-            create_reinvestment_movement(distribution.investor, reinvest)
+        if distribution.kind == JobDistribution.Kind.SHAREHOLDER and distribution.investor_id and reinvest_ars > Decimal("0"):
+            create_reinvestment_movement(distribution.investor, reinvest_ars, reinvest_usd)
             continue
 
-        if distribution.kind == JobDistribution.Kind.REINVESTMENT and distribution.investor_id and dist_amount > Decimal("0"):
-            create_reinvestment_movement(distribution.investor, dist_amount)
+        if distribution.kind == JobDistribution.Kind.REINVESTMENT and distribution.investor_id and dist_amount_ars > Decimal("0"):
+            create_reinvestment_movement(distribution.investor, dist_amount_ars, dist_amount_usd)
 
 
 def close_collection_liquidation(collection: JobCollection) -> None:
     distributions = list(collection.distributions.select_related("investor").all())
-    total_assigned = sum((d.amount_usd or Decimal("0")) for d in distributions)
-    target = collection.collected_amount_usd or collection.amount_usd or Decimal("0")
+    total_assigned = sum((d.amount_ars or Decimal("0")) for d in distributions)
+    target = _collection_distributable_ars(collection)
     if abs(total_assigned - target) > Decimal("0.01"):
         raise ApiValidationError(
             f"La suma distribuida ({total_assigned}) no coincide con el cobro ({target}). Ajustá distribuciones antes de cerrar."
@@ -1070,12 +1157,12 @@ class JobCollectionViewSet(BaseViewSet):
         if collection.status != JobCollection.Status.BILLED:
             raise ApiValidationError("Solo podés registrar cobros sobre facturas pendientes.")
 
-        remaining = collection_remaining_usd(collection)
-        if remaining <= Decimal("0"):
+        remaining_ars = collection_remaining_ars(collection)
+        if remaining_ars <= Decimal("0"):
             raise ApiValidationError("La factura no tiene saldo pendiente.")
 
         raw_collected = request.data.get("collected_amount_usd")
-        raw_currency = request.data.get("collected_currency") or Currency.USD
+        raw_currency = request.data.get("collected_currency") or Currency.ARS
         raw_original = request.data.get("collected_amount_original")
         raw_fx = request.data.get("collected_fx_ars_usd")
         raw_converted = request.data.get("converted_to_usd")
@@ -1094,22 +1181,28 @@ class JobCollectionViewSet(BaseViewSet):
         else:
             close_remaining = str(raw_close_remaining).strip().lower() in {"1", "true", "t", "yes", "si", "sí"}
 
-        original = Decimal(str(raw_original)) if raw_original not in (None, "") else remaining
+        invoice_fx = Decimal(str(collection.fx_ars_usd or 0)).quantize(Decimal("0.0001"))
+        if invoice_fx <= Decimal("0"):
+            raise ApiValidationError("La factura no tiene TC ARS/USD válido.")
+
+        fx = Decimal(str(raw_fx or collection.collected_fx_ars_usd or collection.fx_ars_usd or 0)).quantize(Decimal("0.0001"))
+        if fx <= Decimal("0"):
+            raise ApiValidationError("Para cobros en ARS, indicá TC ARS/USD válido.")
+
+        if raw_currency == Currency.ARS:
+            original = Decimal(str(raw_original)) if raw_original not in (None, "") else remaining_ars
+            collected = (original / fx).quantize(Decimal("0.01"))
+        else:
+            collected = Decimal(str(raw_collected if raw_collected not in (None, "") else raw_original or 0))
+            original = (collected * fx).quantize(Decimal("0.01"))
+
         if original <= Decimal("0"):
             raise ApiValidationError("El monto cobrado original debe ser mayor a 0.")
         if raw_currency not in {Currency.USD, Currency.ARS}:
             raise ApiValidationError("Moneda de cobro inválida.")
-        if raw_currency == Currency.ARS:
-            fx = Decimal(str(raw_fx or 0))
-            if fx <= Decimal("0"):
-                raise ApiValidationError("Para cobros en ARS, indicá TC ARS/USD válido.")
-            collected = (original / fx).quantize(Decimal("0.01"))
-        else:
-            fx = None
-            collected = Decimal(str(raw_collected)) if raw_collected not in (None, "") else original
         if collected <= Decimal("0"):
             raise ApiValidationError("El monto cobrado en USD debe ser mayor a 0.")
-        if collected > remaining:
+        if original > remaining_ars:
             raise ApiValidationError("El monto cobrado no puede superar el saldo pendiente.")
 
         if raw_date:
@@ -1120,17 +1213,18 @@ class JobCollectionViewSet(BaseViewSet):
         else:
             payment_date = collection.collection_date
 
-        settled_amount = remaining if close_remaining else collected
-        if settled_amount > remaining:
-            settled_amount = remaining
-        if settled_amount < collected:
+        settled_ars = remaining_ars if close_remaining else original
+        if settled_ars > remaining_ars:
+            settled_ars = remaining_ars
+        if settled_ars < original:
             raise ApiValidationError("El tramo liquidado no puede ser menor al monto efectivamente cobrado.")
 
-        settled_amount = settled_amount.quantize(Decimal("0.01"))
+        settled_ars = settled_ars.quantize(Decimal("0.01"))
         collected = collected.quantize(Decimal("0.01"))
         original = original.quantize(Decimal("0.01"))
-        tax_loss = (settled_amount - collected).quantize(Decimal("0.01"))
-        settled_ars = collection_settled_slice_ars(collection, settled_amount)
+        settled_amount = (settled_ars / invoice_fx).quantize(Decimal("0.01"))
+        tax_loss_ars = (settled_ars - original).quantize(Decimal("0.01"))
+        tax_loss = (tax_loss_ars / fx).quantize(Decimal("0.01")) if tax_loss_ars > Decimal("0") else Decimal("0.00")
 
         with transaction.atomic():
             partial_collection = JobCollection.objects.create(
@@ -1138,13 +1232,14 @@ class JobCollectionViewSet(BaseViewSet):
                 parent_collection=collection,
                 collection_date=payment_date,
                 amount_ars=settled_ars,
-                fx_ars_usd=collection.fx_ars_usd,
+                fx_ars_usd=invoice_fx,
                 amount_usd=settled_amount,
-                collected_currency=raw_currency,
+                collected_currency=Currency.ARS,
                 collected_amount_original=original,
-                collected_fx_ars_usd=fx.quantize(Decimal("0.0001")) if fx else None,
-                converted_to_usd=converted_to_usd,
+                collected_fx_ars_usd=fx,
+                converted_to_usd=False if raw_currency == Currency.ARS else converted_to_usd,
                 collected_amount_usd=collected,
+                tax_loss_ars=tax_loss_ars,
                 tax_loss_usd=tax_loss,
                 status=JobCollection.Status.COLLECTED,
                 notes=collection.notes,
@@ -1188,9 +1283,13 @@ class JobCollectionViewSet(BaseViewSet):
         return Response(
             {
                 "collection_id": plan["collection_id"],
+                "fx_ars_usd": float(plan["fx_ars_usd"]),
+                "target_ars": float(plan["target_ars"]),
                 "target_usd": float(plan["target_usd"]),
                 "field_team_percentage": float(plan["field_team_percentage"]),
+                "field_team_total_ars": float(plan["field_team_total_ars"]),
                 "field_team_total_usd": float(plan["field_team_total_usd"]),
+                "shareholder_total_ars": float(plan["shareholder_total_ars"]),
                 "shareholder_total_usd": float(plan["shareholder_total_usd"]),
                 "percentage_reference_date": plan["percentage_reference_date"].isoformat(),
                 "field_team_rows": [
@@ -1198,6 +1297,7 @@ class JobCollectionViewSet(BaseViewSet):
                         "investor_id": row["investor_id"],
                         "investor_name": row["investor_name"],
                         "worker_percentage": float(row["worker_percentage"]),
+                        "amount_ars": float(row["amount_ars"]),
                         "amount_usd": float(row["amount_usd"]),
                     }
                     for row in plan["field_team_rows"]
@@ -1207,6 +1307,7 @@ class JobCollectionViewSet(BaseViewSet):
                         "investor_id": row["investor_id"],
                         "investor_name": row["investor_name"],
                         "company_percentage": float(row["company_percentage"]),
+                        "amount_ars": float(row["amount_ars"]),
                         "amount_usd": float(row["amount_usd"]),
                     }
                     for row in plan["shareholder_rows"]
@@ -1216,8 +1317,11 @@ class JobCollectionViewSet(BaseViewSet):
                         "investor_id": row["investor_id"],
                         "investor_name": row["investor_name"],
                         "company_percentage": float(row["company_percentage"]),
+                        "worker_amount_ars": float(row["worker_amount_ars"]),
                         "worker_amount_usd": float(row["worker_amount_usd"]),
+                        "shareholder_amount_ars": float(row["shareholder_amount_ars"]),
                         "shareholder_amount_usd": float(row["shareholder_amount_usd"]),
+                        "total_amount_ars": float(row["total_amount_ars"]),
                         "total_amount_usd": float(row["total_amount_usd"]),
                     }
                     for row in plan["investor_rows"]
@@ -1255,7 +1359,7 @@ class JobCollectionViewSet(BaseViewSet):
 
             created: list[JobDistribution] = []
             for row in plan["investor_rows"]:
-                amount = row["total_amount_usd"]
+                amount = row["total_amount_ars"]
                 if amount <= Decimal("0"):
                     continue
                 raw_withdraw = raw_withdrawals.get(str(row["investor_id"]), raw_withdrawals.get(row["investor_id"], 0))
@@ -1269,14 +1373,19 @@ class JobCollectionViewSet(BaseViewSet):
                     collection=collection,
                     investor_id=row["investor_id"],
                     kind=JobDistribution.Kind.SHAREHOLDER,
-                    amount_usd=amount,
+                    fx_ars_usd=plan["fx_ars_usd"],
+                    amount_ars=amount,
+                    amount_usd=_q2(row["total_amount_usd"]),
+                    work_amount_ars=_q2(row["worker_amount_ars"]),
                     work_amount_usd=_q2(row["worker_amount_usd"]),
+                    shareholder_amount_ars=_q2(row["shareholder_amount_ars"]),
                     shareholder_amount_usd=_q2(row["shareholder_amount_usd"]),
                     percentage=_q2(row["company_percentage"]),
-                    reinvest_to_cash_usd=reinvest,
+                    reinvest_to_cash_ars=reinvest,
+                    reinvest_to_cash_usd=_q2(reinvest / plan["fx_ars_usd"]) if plan["fx_ars_usd"] > Decimal("0") else Decimal("0.00"),
                     notes=(
                         "Distribución automática "
-                        f"(trabajo USD {_q2(row['worker_amount_usd'])} + accionista USD {_q2(row['shareholder_amount_usd'])})"
+                        f"(trabajo ARS {_q2(row['worker_amount_ars'])} + accionista ARS {_q2(row['shareholder_amount_ars'])})"
                     ),
                 )
                 created.append(dist)
@@ -1400,10 +1509,7 @@ class DashboardViewSet(viewsets.ViewSet):
         ).prefetch_related("partial_collections")
         open_billed_collections = [collection for collection in billed_open_qs if collection_has_open_balance(collection)]
         billed_uncollected_count = len(open_billed_collections)
-        billed_uncollected_ars = sum(
-            (collection_settled_slice_ars(collection, collection_remaining_usd(collection)) for collection in open_billed_collections),
-            Decimal("0"),
-        )
+        billed_uncollected_ars = sum((collection_remaining_ars(collection) for collection in open_billed_collections), Decimal("0"))
         billed_uncollected_usd = sum(
             (collection_remaining_usd(collection) for collection in open_billed_collections),
             Decimal("0"),

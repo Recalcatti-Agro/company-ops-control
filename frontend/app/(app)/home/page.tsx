@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { apiFetch, getToken } from "@/lib/api";
 
 type Summary = {
+  cash_balance: number;
   cash_balance_ars: number;
   cash_balance_usd: number;
   pipeline: {
@@ -50,9 +51,9 @@ export default function HomePage() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="card" style={{ textAlign: "center", padding: "24px 20px" }}>
-            <p className="small" style={{ margin: "0 0 6px", opacity: 0.6 }}>Caja ARS</p>
+            <p className="small" style={{ margin: "0 0 6px", opacity: 0.6 }}>Caja total (equiv. USD)</p>
             <p style={{ margin: 0, fontSize: "2rem", fontWeight: 700, letterSpacing: "-0.5px" }}>
-              $ {fmt(data.cash_balance_ars, 0)}
+              U$S {fmt(data.cash_balance)}
             </p>
           </div>
 
