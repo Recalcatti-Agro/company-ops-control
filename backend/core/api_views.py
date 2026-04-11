@@ -2,10 +2,10 @@ from collections import defaultdict
 from datetime import date, timedelta
 from decimal import ROUND_DOWN, ROUND_HALF_UP
 import calendar
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
-from django.db.models import Sum
+from django.db.models import Prefetch, Q, Sum
 from django.db import transaction
 from django.db.models.functions import TruncMonth
 from rest_framework import permissions, viewsets
@@ -15,7 +15,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .collection_utils import collection_has_open_balance, collection_remaining_usd, collection_settled_slice_ars
+from .collection_utils import collection_has_open_balance, collection_remaining_ars, collection_remaining_usd, collection_settled_slice_ars
 from .fx_service import get_ars_per_usd
 from .models import (
     CapitalContribution,
@@ -65,6 +65,196 @@ def _collection_work_reference_date(collection: JobCollection) -> date:
         return collection.collection_date
     # For grouped jobs, use the latest completion date as the reference snapshot.
     return max(work_dates)
+
+
+def _job_related_collections(job: Job) -> list[JobCollection]:
+    partial_qs = (
+        JobCollection.objects.select_related("job", "parent_collection")
+        .prefetch_related("jobs", "distributions__investor")
+        .order_by("collection_date", "id")
+    )
+    return list(
+        JobCollection.objects.filter(Q(job=job) | Q(jobs=job))
+        .select_related("job", "parent_collection")
+        .prefetch_related("jobs", "distributions__investor", Prefetch("partial_collections", queryset=partial_qs))
+        .distinct()
+        .order_by("collection_date", "id")
+    )
+
+
+def _collection_display_status(collection: JobCollection) -> str:
+    if collection.parent_collection_id:
+        return collection.status
+
+    partials = list(collection.partial_collections.all())
+    remaining = collection_remaining_usd(collection)
+    if collection.status == JobCollection.Status.COLLECTED or (partials and remaining <= Decimal("0")):
+        return JobCollection.Status.COLLECTED
+    if partials:
+        return "PARTIAL"
+    return JobCollection.Status.BILLED
+
+
+def _serialize_job_reference(job: Job) -> dict:
+    return {
+        "id": job.id,
+        "date": job.date.isoformat(),
+        "end_date": job.end_date.isoformat() if job.end_date else None,
+        "client": job.client,
+        "work_type": job.work_type,
+        "status": job.status,
+    }
+
+
+def _serialize_job_distribution(distribution: JobDistribution) -> dict:
+    return {
+        "id": distribution.id,
+        "kind": distribution.kind,
+        "kind_label": distribution.get_kind_display(),
+        "investor_id": distribution.investor_id,
+        "investor_name": distribution.investor.name if distribution.investor_id else None,
+        "percentage": str(distribution.percentage) if distribution.percentage is not None else None,
+        "amount_usd": str(_q2(distribution.amount_usd or Decimal("0"))),
+        "work_amount_usd": str(_q2(distribution.work_amount_usd or Decimal("0"))),
+        "shareholder_amount_usd": str(_q2(distribution.shareholder_amount_usd or Decimal("0"))),
+        "reinvest_to_cash_usd": str(_q2(distribution.reinvest_to_cash_usd or Decimal("0"))),
+        "notes": distribution.notes,
+    }
+
+
+def _serialize_job_collection_detail(collection: JobCollection, *, include_partials: bool = True) -> dict:
+    remaining_amount_usd = collection_remaining_usd(collection)
+    remaining_amount_ars = collection_remaining_ars(collection)
+    settled_total_usd = (
+        _q2((collection.amount_usd or Decimal("0")) - remaining_amount_usd)
+        if not collection.parent_collection_id
+        else _q2(collection.collected_amount_usd or collection.amount_usd or Decimal("0"))
+    )
+    partials = list(collection.partial_collections.all()) if include_partials and not collection.parent_collection_id else []
+
+    return {
+        "id": collection.id,
+        "parent_collection": collection.parent_collection_id,
+        "collection_type": "PAYMENT" if collection.parent_collection_id else "INVOICE",
+        "display_status": _collection_display_status(collection),
+        "collection_date": collection.collection_date.isoformat(),
+        "status": collection.status,
+        "amount_ars": str(_q2(collection.amount_ars or Decimal("0"))),
+        "amount_usd": str(_q2(collection.amount_usd or Decimal("0"))),
+        "collected_currency": collection.collected_currency,
+        "collected_amount_original": (
+            str(_q2(collection.collected_amount_original)) if collection.collected_amount_original is not None else None
+        ),
+        "collected_fx_ars_usd": str(collection.collected_fx_ars_usd) if collection.collected_fx_ars_usd is not None else None,
+        "converted_to_usd": bool(collection.converted_to_usd),
+        "collected_amount_usd": str(_q2(collection.collected_amount_usd)) if collection.collected_amount_usd is not None else None,
+        "tax_loss_usd": str(_q2(collection.tax_loss_usd or Decimal("0"))),
+        "remaining_amount_usd": str(remaining_amount_usd),
+        "remaining_amount_ars": str(remaining_amount_ars),
+        "settled_total_usd": str(settled_total_usd),
+        "notes": collection.notes,
+        "related_jobs": [_serialize_job_reference(job) for job in _collection_jobs(collection)],
+        "distributions": [_serialize_job_distribution(distribution) for distribution in collection.distributions.all()],
+        "partial_collections": [
+            _serialize_job_collection_detail(partial, include_partials=False) for partial in partials
+        ],
+    }
+
+
+def _job_detail_payload(job: Job) -> dict:
+    related_collections = _job_related_collections(job)
+    root_collections = [collection for collection in related_collections if not collection.parent_collection_id]
+
+    invoiced_total_usd = Decimal("0")
+    collected_total_usd = Decimal("0")
+    remaining_total_usd = Decimal("0")
+    tax_loss_total_usd = Decimal("0")
+    payment_count = 0
+    timeline: list[dict] = [
+        {
+            "date": job.date.isoformat(),
+            "kind": "WORK",
+            "label": "Trabajo programado",
+            "detail": job.work_type or job.client or f"Trabajo #{job.id}",
+            "notes": job.notes,
+            "_sort": 1,
+        }
+    ]
+    if job.end_date and job.end_date != job.date:
+        timeline.append(
+            {
+                "date": job.end_date.isoformat(),
+                "kind": "WORK_END",
+                "label": "Trabajo finalizado",
+                "detail": job.work_type or job.client or f"Trabajo #{job.id}",
+                "notes": job.notes,
+                "_sort": 2,
+            }
+        )
+
+    collections_data = []
+    for collection in root_collections:
+        collections_data.append(_serialize_job_collection_detail(collection))
+        invoiced_total_usd += _q2(collection.amount_usd or Decimal("0"))
+        remaining_total_usd += collection_remaining_usd(collection)
+
+        related_jobs = _collection_jobs(collection)
+        shared_label = f" · {len(related_jobs)} trabajos" if len(related_jobs) > 1 else ""
+        timeline.append(
+            {
+                "date": collection.collection_date.isoformat(),
+                "kind": "INVOICE",
+                "label": "Facturado",
+                "detail": f"USD {str(_q2(collection.amount_usd or Decimal('0')))}{shared_label}",
+                "notes": collection.notes,
+                "_sort": 3,
+            }
+        )
+
+        payments = list(collection.partial_collections.all())
+        if not payments and collection.status == JobCollection.Status.COLLECTED:
+            payments = [collection]
+
+        payment_count += len(payments)
+        for payment in payments:
+            collected_total_usd += _q2(payment.collected_amount_usd or payment.amount_usd or Decimal("0"))
+            tax_loss_total_usd += _q2(payment.tax_loss_usd or Decimal("0"))
+
+            detail_parts = []
+            if payment.collected_amount_original is not None and payment.collected_currency:
+                detail_parts.append(f"{payment.collected_currency} {str(_q2(payment.collected_amount_original))}")
+            detail_parts.append(f"USD {str(_q2(payment.collected_amount_usd or payment.amount_usd or Decimal('0')))}")
+            if _q2(payment.tax_loss_usd or Decimal("0")) > Decimal("0"):
+                detail_parts.append(f"Impuestos USD {str(_q2(payment.tax_loss_usd))}")
+
+            timeline.append(
+                {
+                    "date": payment.collection_date.isoformat(),
+                    "kind": "PAYMENT",
+                    "label": "Cobro parcial" if payment.parent_collection_id else "Cobro",
+                    "detail": " · ".join(detail_parts),
+                    "notes": payment.notes,
+                    "_sort": 4,
+                }
+            )
+
+    timeline.sort(key=lambda item: (item["date"], item["_sort"]), reverse=True)
+    for item in timeline:
+        item.pop("_sort", None)
+
+    return {
+        "job": JobSerializer(job).data,
+        "summary": {
+            "invoice_count": len(root_collections),
+            "payment_count": payment_count,
+            "invoiced_total_usd": str(_q2(invoiced_total_usd)),
+            "collected_total_usd": str(_q2(collected_total_usd)),
+            "remaining_total_usd": str(_q2(remaining_total_usd)),
+            "tax_loss_total_usd": str(_q2(tax_loss_total_usd)),
+        },
+        "collections": collections_data,
+        "timeline": timeline,
+    }
 
 
 def _monthly_dashboard_data() -> list[dict]:
@@ -150,6 +340,36 @@ def _alloc_by_weights(total_amount: Decimal, weighted_items: list[tuple[int, Dec
     return result
 
 
+def _parse_worker_percentages(raw_worker_percentages) -> dict[int, Decimal]:
+    if raw_worker_percentages in (None, ""):
+        return {}
+    if not isinstance(raw_worker_percentages, dict):
+        raise ApiValidationError("worker_percentages debe ser un objeto.")
+
+    parsed: dict[int, Decimal] = {}
+    for raw_key, raw_value in raw_worker_percentages.items():
+        if raw_value in (None, ""):
+            continue
+        try:
+            investor_id = int(raw_key)
+        except (TypeError, ValueError) as exc:
+            raise ApiValidationError("Las claves de worker_percentages deben ser IDs de inversor.") from exc
+        try:
+            parsed[investor_id] = Decimal(str(raw_value))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ApiValidationError("Los porcentajes de trabajo deben ser numéricos.") from exc
+    return parsed
+
+
+def _resolve_field_team_percentage(raw_field_team_percentage, worker_percentages: dict[int, Decimal]) -> Decimal:
+    if raw_field_team_percentage not in (None, ""):
+        try:
+            return Decimal(str(raw_field_team_percentage))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ApiValidationError("El porcentaje para equipo de campo debe ser numérico.") from exc
+    return sum((value for value in worker_percentages.values()), Decimal("0"))
+
+
 def _investor_capital_snapshot(on_date: date) -> list[dict]:
     rows: list[dict] = []
     investors = list(Investor.objects.filter(active=True).order_by("name"))
@@ -207,6 +427,7 @@ def _build_distribution_plan(
     collection: JobCollection,
     field_team_percentage: Decimal,
     worker_investor_ids: list[int],
+    worker_percentages: dict[int, Decimal] | None = None,
 ) -> dict:
     if field_team_percentage < Decimal("0") or field_team_percentage > Decimal("100"):
         raise ApiValidationError("El porcentaje para equipo de campo debe estar entre 0 y 100.")
@@ -218,21 +439,40 @@ def _build_distribution_plan(
         raise ApiValidationError("El cobro no tiene monto disponible para distribuir.")
 
     active_investor_map = {inv.id: inv for inv in Investor.objects.filter(active=True)}
-    worker_investor_ids = [iid for iid in worker_investor_ids if iid in active_investor_map]
+    worker_investor_ids = list(dict.fromkeys(iid for iid in worker_investor_ids if iid in active_investor_map))
+    worker_percentages = worker_percentages or {}
     if field_team_percentage > Decimal("0") and not worker_investor_ids:
         raise ApiValidationError("Indicá al menos una persona para equipo de campo.")
 
     field_team_total = _q2(target * field_team_percentage / Decimal("100"))
     shareholder_total = _q2(target - field_team_total)
 
+    if worker_percentages:
+        missing = [iid for iid in worker_investor_ids if iid not in worker_percentages]
+        if missing:
+            raise ApiValidationError("Indicá % de trabajo para cada persona seleccionada.")
+        worker_weights: list[tuple[int, Decimal]] = []
+        for iid in worker_investor_ids:
+            weight = worker_percentages[iid]
+            if weight <= Decimal("0"):
+                raise ApiValidationError("Cada % de trabajo debe ser mayor a 0.")
+            worker_weights.append((iid, weight))
+        total_worker_percentage = sum((weight for _, weight in worker_weights), Decimal("0"))
+        if abs(total_worker_percentage - field_team_percentage) > Decimal("0.01"):
+            raise ApiValidationError("Los % de trabajo no coinciden con el total distribuido al equipo de campo.")
+    else:
+        worker_weights = [(iid, Decimal("1")) for iid in worker_investor_ids]
+
     worker_alloc = _alloc_by_weights(
         field_team_total,
-        [(iid, Decimal("1")) for iid in worker_investor_ids],
+        worker_weights,
     )
+    worker_percentage_alloc = _alloc_by_weights(field_team_percentage, worker_weights)
     field_team_rows = [
         {
             "investor_id": iid,
             "investor_name": active_investor_map[iid].name,
+            "worker_percentage": worker_percentage_alloc.get(iid, Decimal("0.00")),
             "amount_usd": worker_alloc.get(iid, Decimal("0.00")),
         }
         for iid in worker_investor_ids
@@ -762,6 +1002,11 @@ class JobViewSet(BaseViewSet):
     queryset = Job.objects.all()
     serializer_class = JobSerializer
 
+    @action(detail=True, methods=["get"], url_path="detail")
+    def job_detail(self, _request, pk=None):
+        job = self.get_object()
+        return Response(_job_detail_payload(job))
+
     @action(detail=True, methods=["post"], url_path="mark-done")
     def mark_done(self, request, pk=None):
         job = self.get_object()
@@ -928,7 +1173,8 @@ class JobCollectionViewSet(BaseViewSet):
     @action(detail=True, methods=["post"], url_path="distribution-preview")
     def distribution_preview(self, request, pk=None):
         collection = self.get_object()
-        field_team_percentage = Decimal(str(request.data.get("field_team_percentage", 0) or 0))
+        worker_percentages = _parse_worker_percentages(request.data.get("worker_percentages"))
+        field_team_percentage = _resolve_field_team_percentage(request.data.get("field_team_percentage"), worker_percentages)
         worker_investor_ids = request.data.get("worker_investor_ids") or []
         if not isinstance(worker_investor_ids, list):
             raise ApiValidationError("worker_investor_ids debe ser una lista.")
@@ -937,6 +1183,7 @@ class JobCollectionViewSet(BaseViewSet):
             collection=collection,
             field_team_percentage=field_team_percentage,
             worker_investor_ids=worker_ids,
+            worker_percentages=worker_percentages,
         )
         return Response(
             {
@@ -950,6 +1197,7 @@ class JobCollectionViewSet(BaseViewSet):
                     {
                         "investor_id": row["investor_id"],
                         "investor_name": row["investor_name"],
+                        "worker_percentage": float(row["worker_percentage"]),
                         "amount_usd": float(row["amount_usd"]),
                     }
                     for row in plan["field_team_rows"]
@@ -980,7 +1228,8 @@ class JobCollectionViewSet(BaseViewSet):
     @action(detail=True, methods=["post"], url_path="apply-distribution")
     def apply_distribution(self, request, pk=None):
         collection = self.get_object()
-        field_team_percentage = Decimal(str(request.data.get("field_team_percentage", 0) or 0))
+        worker_percentages = _parse_worker_percentages(request.data.get("worker_percentages"))
+        field_team_percentage = _resolve_field_team_percentage(request.data.get("field_team_percentage"), worker_percentages)
         worker_investor_ids = request.data.get("worker_investor_ids") or []
         if not isinstance(worker_investor_ids, list):
             raise ApiValidationError("worker_investor_ids debe ser una lista.")
@@ -993,6 +1242,7 @@ class JobCollectionViewSet(BaseViewSet):
             collection=collection,
             field_team_percentage=field_team_percentage,
             worker_investor_ids=worker_ids,
+            worker_percentages=worker_percentages,
         )
 
         with transaction.atomic():

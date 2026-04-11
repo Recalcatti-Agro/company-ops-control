@@ -12,6 +12,7 @@ from .api_views import (
     _build_distribution_plan,
     _investor_capital_snapshot,
     _monthly_dashboard_data,
+    JobViewSet,
     JobCollectionViewSet,
     add_months,
     recompute_job_status,
@@ -26,6 +27,7 @@ from .models import (
     Investor,
     Job,
     JobCollection,
+    JobDistribution,
     PaymentObligation,
     Purchase,
 )
@@ -292,6 +294,41 @@ class BuildDistributionPlanTest(TestCase):
             plan["field_team_total_usd"] + plan["shareholder_total_usd"],
             plan["target_usd"],
         )
+
+    def test_custom_worker_percentages_split_field_team_unevenly(self):
+        inv_a, inv_b = self._two_investors_60_40()
+        collection = make_collection(Decimal("100.00"), collected_amount_usd=Decimal("100.00"))
+
+        plan = _build_distribution_plan(
+            collection=collection,
+            field_team_percentage=Decimal("20"),
+            worker_investor_ids=[inv_a.id, inv_b.id],
+            worker_percentages={
+                inv_a.id: Decimal("15"),
+                inv_b.id: Decimal("5"),
+            },
+        )
+
+        field_team_rows = {row["investor_id"]: row for row in plan["field_team_rows"]}
+        self.assertEqual(field_team_rows[inv_a.id]["worker_percentage"], Decimal("15.00"))
+        self.assertEqual(field_team_rows[inv_a.id]["amount_usd"], Decimal("15.00"))
+        self.assertEqual(field_team_rows[inv_b.id]["worker_percentage"], Decimal("5.00"))
+        self.assertEqual(field_team_rows[inv_b.id]["amount_usd"], Decimal("5.00"))
+
+    def test_raises_if_worker_percentages_do_not_sum_field_team_percentage(self):
+        inv_a, inv_b = self._two_investors_60_40()
+        collection = make_collection(Decimal("100.00"), collected_amount_usd=Decimal("100.00"))
+
+        with self.assertRaises(ApiValidationError):
+            _build_distribution_plan(
+                collection=collection,
+                field_team_percentage=Decimal("20"),
+                worker_investor_ids=[inv_a.id, inv_b.id],
+                worker_percentages={
+                    inv_a.id: Decimal("12"),
+                    inv_b.id: Decimal("6"),
+                },
+            )
 
     def test_zero_field_team_all_goes_to_shareholders(self):
         make_investor("Ana")
@@ -815,3 +852,105 @@ class JobCollectionMarkCollectedActionTest(TestCase):
         self.assertEqual(partial.tax_loss_usd, Decimal("5.00"))
         self.assertEqual(collection_remaining_usd(billed), Decimal("0.00"))
         self.assertEqual(job.status, Job.Status.COLLECTED)
+
+
+class JobDetailActionTest(TestCase):
+
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = get_user_model().objects.create_user(username="detail-user", password="secret")
+        self.view = JobViewSet.as_view({"get": "job_detail"})
+
+    def test_detail_returns_job_summary_timeline_and_related_records(self):
+        worker = make_investor("Ana")
+        shareholder = make_investor("Bruno")
+        sibling_job = Job.objects.create(
+            date=date(2024, 1, 9),
+            client="Cliente Uno",
+            work_type="Apoyo",
+            status=Job.Status.DONE,
+        )
+        job = Job.objects.create(
+            date=date(2024, 1, 10),
+            end_date=date(2024, 1, 12),
+            client="Cliente Uno",
+            work_type="Siembra",
+            hectares=Decimal("150.50"),
+            status=Job.Status.INVOICED,
+            notes="Lote 7",
+        )
+        billed = JobCollection.objects.create(
+            job=job,
+            collection_date=date(2024, 1, 20),
+            amount_ars=Decimal("100000.00"),
+            fx_ars_usd=Decimal("1000.0000"),
+            amount_usd=Decimal("100.00"),
+            status=JobCollection.Status.BILLED,
+            notes="Factura enero",
+        )
+        billed.jobs.add(job, sibling_job)
+        partial = JobCollection.objects.create(
+            job=job,
+            parent_collection=billed,
+            collection_date=date(2024, 1, 25),
+            amount_ars=Decimal("40000.00"),
+            fx_ars_usd=Decimal("1000.0000"),
+            amount_usd=Decimal("40.00"),
+            collected_currency=Currency.ARS,
+            collected_amount_original=Decimal("40000.00"),
+            collected_fx_ars_usd=Decimal("1000.0000"),
+            converted_to_usd=False,
+            collected_amount_usd=Decimal("40.00"),
+            tax_loss_usd=Decimal("0.00"),
+            status=JobCollection.Status.COLLECTED,
+            notes="Primer cobro",
+        )
+        partial.jobs.add(job, sibling_job)
+        JobDistribution.objects.create(
+            collection=partial,
+            investor=worker,
+            kind=JobDistribution.Kind.FIELD_TEAM,
+            percentage=Decimal("15.0000"),
+            amount_usd=Decimal("15.00"),
+            work_amount_usd=Decimal("15.00"),
+        )
+        JobDistribution.objects.create(
+            collection=partial,
+            investor=shareholder,
+            kind=JobDistribution.Kind.SHAREHOLDER,
+            percentage=Decimal("25.0000"),
+            amount_usd=Decimal("25.00"),
+            shareholder_amount_usd=Decimal("25.00"),
+        )
+
+        request = self.factory.get(f"/jobs/{job.id}/detail/")
+        force_authenticate(request, user=self.user)
+
+        response = self.view(request, pk=job.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["job"]["id"], job.id)
+        self.assertEqual(response.data["summary"]["invoice_count"], 1)
+        self.assertEqual(response.data["summary"]["payment_count"], 1)
+        self.assertEqual(response.data["summary"]["invoiced_total_usd"], "100.00")
+        self.assertEqual(response.data["summary"]["collected_total_usd"], "40.00")
+        self.assertEqual(response.data["summary"]["remaining_total_usd"], "60.00")
+        self.assertEqual(response.data["summary"]["tax_loss_total_usd"], "0.00")
+
+        self.assertEqual(len(response.data["collections"]), 1)
+        invoice = response.data["collections"][0]
+        self.assertEqual(invoice["collection_type"], "INVOICE")
+        self.assertEqual(invoice["display_status"], "PARTIAL")
+        self.assertEqual(invoice["remaining_amount_usd"], "60.00")
+        self.assertEqual(len(invoice["related_jobs"]), 2)
+        self.assertEqual(len(invoice["partial_collections"]), 1)
+
+        payment = invoice["partial_collections"][0]
+        self.assertEqual(payment["collection_type"], "PAYMENT")
+        self.assertEqual(payment["collected_amount_usd"], "40.00")
+        self.assertEqual(len(payment["distributions"]), 2)
+        self.assertEqual({row["kind"] for row in payment["distributions"]}, {"FIELD_TEAM", "SHAREHOLDER"})
+
+        labels = [row["label"] for row in response.data["timeline"]]
+        self.assertIn("Facturado", labels)
+        self.assertIn("Cobro parcial", labels)

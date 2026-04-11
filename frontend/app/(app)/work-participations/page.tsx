@@ -45,7 +45,7 @@ type DistributionPreview = {
   field_team_total_usd: number;
   shareholder_total_usd: number;
   percentage_reference_date: string;
-  field_team_rows: { investor_id: number; investor_name: string; amount_usd: number }[];
+  field_team_rows: { investor_id: number; investor_name: string; worker_percentage: number; amount_usd: number }[];
   shareholder_rows: { investor_id: number; investor_name: string; company_percentage: number; amount_usd: number }[];
   investor_rows: {
     investor_id: number;
@@ -67,8 +67,8 @@ export default function WorkParticipationsPage() {
   const [rows, setRows] = useState<Distribution[]>([]);
   const [error, setError] = useState("");
   const [distributionCollectionId, setDistributionCollectionId] = useState<number | null>(null);
-  const [fieldTeamPercentageInput, setFieldTeamPercentageInput] = useState("0");
   const [workerInvestorIds, setWorkerInvestorIds] = useState<number[]>([]);
+  const [workerPercentagesByInvestor, setWorkerPercentagesByInvestor] = useState<Record<number, string>>({});
   const [distributionPreview, setDistributionPreview] = useState<DistributionPreview | null>(null);
   const [withdrawalsByInvestor, setWithdrawalsByInvestor] = useState<Record<number, string>>({});
 
@@ -223,25 +223,61 @@ export default function WorkParticipationsPage() {
 
   const onStartDistribution = (collectionId: number) => {
     setDistributionCollectionId(collectionId);
-    setFieldTeamPercentageInput("0");
     setWorkerInvestorIds([]);
+    setWorkerPercentagesByInvestor({});
     setDistributionPreview(null);
     setWithdrawalsByInvestor({});
   };
 
   const onToggleWorker = (investorId: number) => {
-    setWorkerInvestorIds((prev) => (prev.includes(investorId) ? prev.filter((id) => id !== investorId) : [...prev, investorId]));
+    setWorkerInvestorIds((prev) => {
+      const exists = prev.includes(investorId);
+      const next = exists ? prev.filter((id) => id !== investorId) : [...prev, investorId];
+      setWorkerPercentagesByInvestor((current) => {
+        const updated = { ...current };
+        if (exists) {
+          delete updated[investorId];
+        } else {
+          updated[investorId] = updated[investorId] || "";
+        }
+        return updated;
+      });
+      setDistributionPreview(null);
+      setWithdrawalsByInvestor({});
+      return next;
+    });
+  };
+
+  const fieldTeamPercentageTotal = useMemo(
+    () => workerInvestorIds.reduce((acc, investorId) => acc + parseLooseNumber(workerPercentagesByInvestor[investorId] || "0"), 0),
+    [workerInvestorIds, workerPercentagesByInvestor]
+  );
+
+  const buildWorkerPercentagesPayload = () => {
+    if (fieldTeamPercentageTotal <= 0) return {};
+    return Object.fromEntries(workerInvestorIds.map((investorId) => [investorId, workerPercentagesByInvestor[investorId] || "0"]));
   };
 
   const onCalculateDistribution = async () => {
     if (!distributionCollectionId) return;
     setError("");
+    if (workerInvestorIds.length) {
+      if (fieldTeamPercentageTotal > 100.01) {
+        setError("La suma de los % de trabajo no puede superar 100.");
+        return;
+      }
+      if (workerInvestorIds.some((investorId) => parseLooseNumber(workerPercentagesByInvestor[investorId] || "0") <= 0)) {
+        setError("Cada persona seleccionada debe tener un % de trabajo mayor a 0.");
+        return;
+      }
+    }
     try {
       const preview = await apiFetch<DistributionPreview>(`/job-collections/${distributionCollectionId}/distribution-preview/`, {
         method: "POST",
         body: JSON.stringify({
-          field_team_percentage: fieldTeamPercentageInput || "0",
+          field_team_percentage: fieldTeamPercentageTotal.toFixed(2),
           worker_investor_ids: workerInvestorIds,
+          worker_percentages: buildWorkerPercentagesPayload(),
         }),
       });
       setDistributionPreview(preview);
@@ -258,17 +294,29 @@ export default function WorkParticipationsPage() {
   const onApplyDistribution = async () => {
     if (!distributionCollectionId || !distributionPreview) return;
     setError("");
+    if (workerInvestorIds.length) {
+      if (fieldTeamPercentageTotal > 100.01) {
+        setError("La suma de los % de trabajo no puede superar 100.");
+        return;
+      }
+      if (workerInvestorIds.some((investorId) => parseLooseNumber(workerPercentagesByInvestor[investorId] || "0") <= 0)) {
+        setError("Cada persona seleccionada debe tener un % de trabajo mayor a 0.");
+        return;
+      }
+    }
     try {
       await apiFetch(`/job-collections/${distributionCollectionId}/apply-distribution/`, {
         method: "POST",
         body: JSON.stringify({
-          field_team_percentage: fieldTeamPercentageInput || "0",
+          field_team_percentage: fieldTeamPercentageTotal.toFixed(2),
           worker_investor_ids: workerInvestorIds,
+          worker_percentages: buildWorkerPercentagesPayload(),
           withdrawals_by_investor: withdrawalsByInvestor,
         }),
       });
       setDistributionCollectionId(null);
       setDistributionPreview(null);
+      setWorkerPercentagesByInvestor({});
       setWithdrawalsByInvestor({});
       await load();
     } catch (e) {
@@ -1016,15 +1064,9 @@ export default function WorkParticipationsPage() {
           <div className="card" style={{ width: "min(760px, 100%)", maxHeight: "85vh", overflow: "auto" }} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>Distribuir cobro</h3>
             <p className="small" style={{ marginTop: 0 }}>
-              1) Definí % para equipo de campo. 2) Elegí quiénes trabajaron. 3) Sobre el resto se calcula por % empresa y definís retiro por inversor.
+              1) Elegí quiénes trabajaron y qué % del cobro total representa cada uno. 2) Sobre el resto se calcula por % empresa y definís retiro por inversor.
             </p>
             <div className="form">
-              <div className="small">Porcentaje para equipo de campo</div>
-              <input
-                value={fieldTeamPercentageInput}
-                onChange={(e) => setFieldTeamPercentageInput(e.target.value)}
-                placeholder="% equipo campo"
-              />
               <div className="small">Quiénes trabajaron</div>
               <div className="participant-grid">
                 {investors.map((inv) => (
@@ -1039,6 +1081,48 @@ export default function WorkParticipationsPage() {
                   </label>
                 ))}
               </div>
+              {workerInvestorIds.length ? (
+                <div
+                  style={{
+                    display: "grid",
+                    gap: 8,
+                    padding: 10,
+                    border: "1px solid var(--line)",
+                    borderRadius: 12,
+                    background: "var(--surface)",
+                  }}
+                >
+                  <div className="small">Porcentaje del cobro total que representa el trabajo de cada persona</div>
+                  {workerInvestorIds.map((investorId) => (
+                    <div key={investorId} className="row" style={{ gap: 10, alignItems: "center" }}>
+                      <span style={{ minWidth: 160 }}>{investorById[investorId] || `Inversor #${investorId}`}</span>
+                      <input
+                        value={workerPercentagesByInvestor[investorId] || ""}
+                        onChange={(e) =>
+                          {
+                            setDistributionPreview(null);
+                            setWithdrawalsByInvestor({});
+                            setWorkerPercentagesByInvestor((prev) => ({
+                              ...prev,
+                              [investorId]: e.target.value,
+                            }));
+                          }
+                        }
+                        placeholder="% del cobro"
+                        style={{ maxWidth: 120 }}
+                      />
+                    </div>
+                  ))}
+                  <div
+                    className="small"
+                    style={{
+                      color: fieldTeamPercentageTotal > 100.01 ? "#b42318" : "var(--muted)",
+                    }}
+                  >
+                    Total trabajo sobre cobro: {formatNumber(fieldTeamPercentageTotal)}%
+                  </div>
+                </div>
+              ) : null}
               <button className="btn btn-secondary" type="button" onClick={onCalculateDistribution}>
                 Calcular distribución
               </button>
@@ -1060,6 +1144,7 @@ export default function WorkParticipationsPage() {
                     <thead>
                       <tr>
                         <th>Persona</th>
+                        <th>% del cobro</th>
                         <th>USD</th>
                       </tr>
                     </thead>
@@ -1067,12 +1152,13 @@ export default function WorkParticipationsPage() {
                       {distributionPreview.field_team_rows.map((row) => (
                         <tr key={row.investor_id}>
                           <td>{row.investor_name}</td>
+                          <td>{formatNumber(row.worker_percentage)}%</td>
                           <td>{formatNumber(row.amount_usd)}</td>
                         </tr>
                       ))}
                       {!distributionPreview.field_team_rows.length ? (
                         <tr>
-                          <td colSpan={2}>Sin distribución a equipo de campo</td>
+                          <td colSpan={3}>Sin distribución a equipo de campo</td>
                         </tr>
                       ) : null}
                     </tbody>

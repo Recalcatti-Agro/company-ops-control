@@ -615,6 +615,19 @@ export default function WorksPage() {
                                   <span>Volver pendiente</span>
                                 </button>
                               ) : null}
+                              <Link
+                                className="action-btn"
+                                href={`/works/${row.id}`}
+                                onClick={(e) => e.stopPropagation()}
+                                title="Ver detalle"
+                                aria-label="Ver detalle del trabajo"
+                              >
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                  <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                                  <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                                </svg>
+                                <span>Ver detalle</span>
+                              </Link>
                               <button
                                 className="action-btn action-btn-edit"
                                 onClick={(e) => {
