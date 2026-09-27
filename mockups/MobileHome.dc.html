@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+:root{
+  --bg:#F5F0E8;--card:#FDFAF5;--surface:#FDFAF5;--text:#2a2a2a;--muted:#6b6a5e;--line:#D9D2C5;
+  --primary:#2E5E2E;--primary-2:#1C3A1C;--hover-bg:#EAE3D6;--btn-secondary-bg:#EAE3D6;--btn-secondary-text:#1C3A1C;
+}
+[data-theme="dark"]{
+  --bg:#0f1a0f;--card:#162016;--surface:#131a13;--text:#f0ebe0;--muted:#8fa07f;--line:#253525;
+  --primary:#6dc96d;--primary-2:#55b055;--hover-bg:#1e2e1e;--btn-secondary-bg:#1e2e1e;--btn-secondary-text:#c8d8b8;
+}
+*{box-sizing:border-box}
+.phone{font-family:"Manrope","Avenir Next","Segoe UI",sans-serif;background:var(--bg);color:var(--text);
+  width:390px;min-height:844px;position:relative;padding:18px 16px 88px;}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.greet-lbl{font-size:12px;color:var(--muted);font-weight:600}
+.greet{font-size:19px;font-weight:800;letter-spacing:-0.01em}
+.icon-btn{width:44px;height:44px;border-radius:10px;background:var(--card);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--text)}
+.quick-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.quick-btn{border-radius:14px;padding:16px 12px;display:flex;flex-direction:column;gap:8px;font-weight:700;font-size:14px}
+.quick-primary{background:linear-gradient(120deg,var(--primary),var(--primary-2));color:#fff}
+.quick-secondary{background:var(--card);border:1px solid var(--line);color:var(--text)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:15px;margin-bottom:12px;box-shadow:0 2px 4px rgba(0,0,0,.03)}
+.card-title{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px}
+.kpi-row{display:flex;justify-content:space-between;align-items:baseline}
+.kpi{font-size:24px;font-weight:800;letter-spacing:-0.02em}
+.kpi-sub{font-size:12px;color:var(--muted)}
+.split-row{display:flex;justify-content:space-between;padding:6px 0;font-size:13.5px}
+.split-row + .split-row{border-top:1px dashed var(--line)}
+.mini-list-row{display:flex;justify-content:space-between;font-size:13px;padding:7px 0}
+.mini-list-row + .mini-list-row{border-top:1px dashed var(--line)}
+.mini-list-row span:last-child{font-weight:700}
+.bottom-nav{position:absolute;left:0;right:0;bottom:0;height:68px;background:var(--card);border-top:1px solid var(--line);
+  display:flex;align-items:center;justify-content:space-around;padding-bottom:6px}
+.nav-btn{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--muted);font-size:10.5px;font-weight:600;min-width:44px;min-height:44px;justify-content:center}
+.nav-btn.active{color:var(--primary-2)}
+[data-theme="dark"] .nav-btn.active{color:var(--primary)}
+</style>
+</helmet>
+<div class="phone" data-theme="{{theme}}">
+  <div class="topbar">
+    <div><div class="greet-lbl">Hola</div><div class="greet">Sofía</div></div>
+    <div class="icon-btn"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8 6 18M18 6l1.8-1.8"/></svg></div>
+  </div>
+
+  <div class="quick-row">
+    <div class="quick-btn quick-primary">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      Nuevo trabajo
+    </div>
+    <div class="quick-btn quick-secondary">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
+      Nuevo gasto
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Caja</div>
+    <div class="kpi-row"><div class="kpi">USD 18.420</div><div class="kpi-sub">equiv. total</div></div>
+    <div class="split-row"><span>Caja ARS</span><span style="font-weight:700">$ 4.860.000</span></div>
+    <div class="split-row"><span>Caja USD</span><span style="font-weight:700">USD 13.920</span></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Mi capital</div>
+    <div class="kpi-row"><div class="kpi">USD 29.850</div><div class="kpi-sub">31% del total</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Pipeline</div>
+    <div class="mini-list-row"><span>Trabajos pendientes</span><span>6</span></div>
+    <div class="mini-list-row"><span>Hechos sin facturar</span><span>3</span></div>
+  </div>
+
+  <div class="card" style="margin-bottom:0">
+    <div class="card-title">Próximos vencimientos</div>
+    <div class="mini-list-row"><span>Pulverizadora · cuota 2/3</span><span>01/04</span></div>
+    <div class="mini-list-row"><span>Silo bolsa · cuota 3/4</span><span>05/04</span></div>
+  </div>
+
+  <div class="bottom-nav">
+    <div class="nav-btn active"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9h12v-9"/></svg>Home</div>
+    <div class="nav-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Trabajos</div>
+    <div class="nav-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2.5"/><circle cx="12" cy="12" r="2.4"/></svg>Gastos</div>
+    <div class="nav-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg>Más</div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":false,"section":"Tema"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.dark ? 'dark' : 'light' };
+  }
+}
+</script>
+</body>
+</html>

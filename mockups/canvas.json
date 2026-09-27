@@ -1,0 +1,11 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 1040, "title": "Dashboard" },
+    { "file": "Jobs.dc.html", "x": 1520, "y": 0, "w": 1440, "h": 1120, "title": "Trabajos" },
+    { "file": "ClientDetail.dc.html", "x": 0, "y": 1200, "w": 1440, "h": 1120, "title": "Ficha de cliente" },
+    { "file": "Invoices.dc.html", "x": 1520, "y": 1200, "w": 1440, "h": 1080, "title": "Facturas y cobros" },
+    { "file": "MobileHome.dc.html", "x": 3040, "y": 0, "w": 390, "h": 844, "title": "Mobile · Home" },
+    { "file": "MobileJobQuick.dc.html", "x": 3040, "y": 924, "w": 390, "h": 844, "title": "Mobile · Nuevo trabajo" }
+  ],
+  "launch": { "view": "canvas" }
+}

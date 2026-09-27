@@ -1,0 +1,210 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+:root{
+  --bg:#F5F0E8;--card:#FDFAF5;--surface:#FDFAF5;--text:#2a2a2a;--muted:#6b6a5e;--line:#D9D2C5;
+  --primary:#2E5E2E;--primary-2:#1C3A1C;--nav-bg:rgba(245,240,232,.92);--hover-bg:#EAE3D6;
+  --btn-secondary-bg:#EAE3D6;--btn-secondary-text:#1C3A1C;
+}
+[data-theme="dark"]{
+  --bg:#0f1a0f;--card:#162016;--surface:#131a13;--text:#f0ebe0;--muted:#8fa07f;--line:#253525;
+  --primary:#6dc96d;--primary-2:#55b055;--nav-bg:rgba(15,26,15,.88);--hover-bg:#1e2e1e;
+  --btn-secondary-bg:#1e2e1e;--btn-secondary-text:#c8d8b8;
+}
+*{box-sizing:border-box}
+.app{font-family:"Manrope","Avenir Next","Segoe UI",sans-serif;background:var(--bg);color:var(--text);
+  min-height:1040px;width:1440px;position:relative;}
+a{color:inherit;text-decoration:none}
+.sidebar{position:absolute;top:0;left:0;width:220px;height:100%;background:var(--nav-bg);
+  border-right:1px solid var(--line);display:flex;flex-direction:column;}
+.sidebar-header{padding:20px 18px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+.logo-mark{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--primary),var(--primary-2));
+  flex:0 0 auto;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px}
+.logo-word{font-weight:800;font-size:16px;letter-spacing:-0.01em}
+.nav{padding:14px 10px;display:flex;flex-direction:column;gap:2px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;font-size:13.5px;font-weight:600;color:var(--muted)}
+.nav-item svg{flex:0 0 auto;opacity:.85}
+.nav-item.active{background:var(--hover-bg);color:var(--primary-2)}
+[data-theme="dark"] .nav-item.active{color:var(--primary)}
+.nav-section{margin:14px 10px 4px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);opacity:.7}
+.user-chip{margin-top:auto;padding:14px;border-top:1px solid var(--line);display:flex;align-items:center;gap:10px}
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--hover-bg);color:var(--primary-2);display:flex;
+  align-items:center;justify-content:center;font-weight:700;font-size:13px}
+[data-theme="dark"] .avatar{color:var(--primary)}
+.main{margin-left:220px;padding:28px 32px;max-width:1220px}
+.pageh{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:22px}
+h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-0.01em}
+.sub{color:var(--muted);font-size:13px;margin-top:4px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 2px 4px rgba(0,0,0,.03)}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px}
+.grid3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:16px;margin-bottom:16px;align-items:start}
+.kpi-label{color:var(--muted);font-size:12.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.kpi{font-size:26px;font-weight:800;letter-spacing:-0.02em;margin-top:6px}
+.kpi-sub{color:var(--muted);font-size:12.5px;margin-top:4px}
+.section-title{font-size:14px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:9px 6px;border-bottom:1px solid var(--line);font-size:13px}
+th{color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.03em}
+tr:last-child td{border-bottom:0}
+.chip{display:inline-flex;align-items:center;border:1px solid;border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:700}
+.c-open{background:rgba(47,128,237,.14);border-color:rgba(47,128,237,.35);color:#175cd3}
+.c-partial{background:rgba(247,144,9,.14);border-color:rgba(247,144,9,.35);color:#b54708}
+.c-paid{background:rgba(18,183,106,.14);border-color:rgba(18,183,106,.38);color:#067647}
+.c-pending{background:rgba(52,64,84,.08);border-color:rgba(52,64,84,.18);color:#344054}
+[data-theme="dark"] .c-open{color:#84caff}
+[data-theme="dark"] .c-partial{color:#fdb022}
+[data-theme="dark"] .c-paid{color:#6ce9a6}
+[data-theme="dark"] .c-pending{color:#d0d5dd}
+.alert{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed var(--line);font-size:13px}
+.alert:last-child{border-bottom:0}
+.dot{width:7px;height:7px;border-radius:50%;background:#b54708;margin-top:6px;flex:0 0 auto}
+.captable-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.captable-name{width:74px;font-size:12.5px;font-weight:600;flex:0 0 auto}
+.captable-track{flex:1;height:8px;border-radius:999px;background:var(--line);overflow:hidden}
+.captable-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--primary),var(--primary-2))}
+.captable-pct{width:38px;text-align:right;font-size:12.5px;font-weight:700;flex:0 0 auto}
+.bars{display:flex;align-items:flex-end;gap:14px;height:110px;padding-top:8px}
+.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
+.bar{width:100%;border-radius:6px 6px 0 0;background:linear-gradient(180deg,var(--primary),var(--primary-2))}
+.bar-lbl{font-size:11px;color:var(--muted)}
+</style>
+</helmet>
+<div class="app" data-theme="{{theme}}">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-mark">R</div>
+      <div class="logo-word">Recalcatti</div>
+    </div>
+    <div class="nav">
+      <div class="nav-item active">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>
+        Dashboard
+      </div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/></svg>
+        Trabajos
+      </div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><circle cx="17.5" cy="9" r="2.4"/><path d="M15.5 20a4.2 4.2 0 0 1 6.8-3.3"/></svg>
+        Clientes
+      </div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z"/><path d="M9 8h6M9 12h6"/></svg>
+        Facturas y cobros
+      </div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 8V6a3 3 0 0 1 6 0v2"/><rect x="4" y="8" width="16" height="12" rx="2"/></svg>
+        Compras
+      </div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 3v3M16 3v3"/></svg>
+        Cuentas a pagar
+      </div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2.5"/><circle cx="12" cy="12" r="2.6"/><path d="M6.5 9v0M17.5 15v0"/></svg>
+        Caja
+      </div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v9l7.5 4.3A9 9 0 1 0 12 3Z"/></svg>
+        Inversores
+      </div>
+      <div class="nav-section">Administración</div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 4 6v6c0 4.6 3.4 7.6 8 9 4.6-1.4 8-4.4 8-9V6Z"/></svg>
+        Usuarios
+      </div>
+      <div class="nav-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h13M17 7l-3-3M17 7l-3 3"/><path d="M20 17H7M7 17l3 3M7 17l3-3"/></svg>
+        Tipos de cambio
+      </div>
+    </div>
+    <div class="user-chip">
+      <div class="avatar">PJ</div>
+      <div>
+        <div style="font-size:13px;font-weight:700">Patricio</div>
+        <div style="font-size:11.5px;color:var(--muted)">ADMIN</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="pageh">
+      <div>
+        <h1>Dashboard</h1>
+        <div class="sub">Martes 25 de marzo, 2026</div>
+      </div>
+    </div>
+
+    <div class="grid4">
+      <div class="card"><div class="kpi-label">Caja total (equiv.)</div><div class="kpi">USD 18.420</div><div class="kpi-sub">ARS $4.860.000 + USD 13.920</div></div>
+      <div class="card"><div class="kpi-label">Caja ARS</div><div class="kpi">$ 4.860.000</div><div class="kpi-sub">≈ USD 4.500</div></div>
+      <div class="card"><div class="kpi-label">Caja USD</div><div class="kpi">USD 13.920</div><div class="kpi-sub">cuenta en dólares</div></div>
+      <div class="card"><div class="kpi-label">Capital total</div><div class="kpi">USD 96.300</div><div class="kpi-sub">3 inversores activos</div></div>
+    </div>
+
+    <div class="grid3">
+      <div class="card">
+        <div class="section-title">Evolución mensual</div>
+        <div class="bars">
+          <div class="bar-col"><div class="bar" style="height:38px"></div><div class="bar-lbl">Oct</div></div>
+          <div class="bar-col"><div class="bar" style="height:52px"></div><div class="bar-lbl">Nov</div></div>
+          <div class="bar-col"><div class="bar" style="height:44px"></div><div class="bar-lbl">Dic</div></div>
+          <div class="bar-col"><div class="bar" style="height:70px"></div><div class="bar-lbl">Ene</div></div>
+          <div class="bar-col"><div class="bar" style="height:60px"></div><div class="bar-lbl">Feb</div></div>
+          <div class="bar-col"><div class="bar" style="height:85px"></div><div class="bar-lbl">Mar</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-title">Pipeline</div>
+        <table>
+          <tr><td>Pendientes</td><td style="text-align:right;font-weight:700">6</td></tr>
+          <tr><td>Hechos sin facturar</td><td style="text-align:right;font-weight:700">3 · 42 ha</td></tr>
+          <tr><td>Facturado sin cobrar</td><td style="text-align:right;font-weight:700">4</td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <div class="section-title">Cap table</div>
+        <div class="captable-row"><div class="captable-name">Martín</div><div class="captable-track"><div class="captable-fill" style="width:46%"></div></div><div class="captable-pct">46%</div></div>
+        <div class="captable-row"><div class="captable-name">Sofía</div><div class="captable-track"><div class="captable-fill" style="width:31%"></div></div><div class="captable-pct">31%</div></div>
+        <div class="captable-row"><div class="captable-name">Diego</div><div class="captable-track"><div class="captable-fill" style="width:23%"></div></div><div class="captable-pct">23%</div></div>
+      </div>
+    </div>
+
+    <div class="grid3">
+      <div class="card">
+        <div class="section-title">Próximos vencimientos</div>
+        <table>
+          <thead><tr><th>Concepto</th><th>Vence</th><th>Monto</th><th>Estado</th></tr></thead>
+          <tbody>
+            <tr><td>Pulverizadora · cuota 2/3</td><td>01/04</td><td>USD 4.000</td><td><span class="chip c-pending">Pendiente</span></td></tr>
+            <tr><td>Silo bolsa · cuota 3/4</td><td>05/04</td><td>USD 1.200</td><td><span class="chip c-pending">Pendiente</span></td></tr>
+            <tr><td>Seguro maquinaria</td><td>12/04</td><td>$ 210.000</td><td><span class="chip c-partial">Parcial</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card" style="grid-column:span 2">
+        <div class="section-title">Alertas</div>
+        <div class="alert"><div class="dot" style="background:#b42318"></div>Hay 1 compromiso vencido — cuota 1/3 pulverizadora, venció el 01/03.</div>
+        <div class="alert"><div class="dot"></div>Hay 2 facturas con más de 30 días sin cobrar.</div>
+        <div class="alert"><div class="dot" style="background:#175cd3"></div>Estancia El Ombú tiene una factura abierta desde el 22/03.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":false,"section":"Tema"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.dark ? 'dark' : 'light' };
+  }
+}
+</script>
+</body>
+</html>

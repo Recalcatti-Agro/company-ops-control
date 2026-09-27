@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+:root{
+  --bg:#F5F0E8;--card:#FDFAF5;--surface:#FDFAF5;--text:#2a2a2a;--muted:#6b6a5e;--line:#D9D2C5;
+  --primary:#2E5E2E;--primary-2:#1C3A1C;--nav-bg:rgba(245,240,232,.92);--hover-bg:#EAE3D6;
+  --btn-secondary-bg:#EAE3D6;--btn-secondary-text:#1C3A1C;
+}
+[data-theme="dark"]{
+  --bg:#0f1a0f;--card:#162016;--surface:#131a13;--text:#f0ebe0;--muted:#8fa07f;--line:#253525;
+  --primary:#6dc96d;--primary-2:#55b055;--nav-bg:rgba(15,26,15,.88);--hover-bg:#1e2e1e;
+  --btn-secondary-bg:#1e2e1e;--btn-secondary-text:#c8d8b8;
+}
+*{box-sizing:border-box}
+.app{font-family:"Manrope","Avenir Next","Segoe UI",sans-serif;background:var(--bg);color:var(--text);
+  min-height:1120px;width:1440px;position:relative;}
+a{color:inherit;text-decoration:none}
+.sidebar{position:absolute;top:0;left:0;width:220px;height:100%;background:var(--nav-bg);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.sidebar-header{padding:20px 18px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+.logo-mark{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--primary),var(--primary-2));flex:0 0 auto;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px}
+.logo-word{font-weight:800;font-size:16px;letter-spacing:-0.01em}
+.nav{padding:14px 10px;display:flex;flex-direction:column;gap:2px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;font-size:13.5px;font-weight:600;color:var(--muted)}
+.nav-item.active{background:var(--hover-bg);color:var(--primary-2)}
+[data-theme="dark"] .nav-item.active{color:var(--primary)}
+.nav-section{margin:14px 10px 4px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);opacity:.7}
+.user-chip{margin-top:auto;padding:14px;border-top:1px solid var(--line);display:flex;align-items:center;gap:10px}
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--hover-bg);color:var(--primary-2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+[data-theme="dark"] .avatar{color:var(--primary)}
+.main{margin-left:220px;padding:28px 32px;max-width:1220px}
+.crumb{color:var(--muted);font-size:12.5px;font-weight:600;margin-bottom:6px}
+.crumb b{color:var(--text)}
+h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-0.01em}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 2px 4px rgba(0,0,0,.03)}
+.layout{display:grid;grid-template-columns:300px 1fr;gap:18px;margin-top:18px;align-items:start}
+.field{margin-bottom:12px}
+.field-label{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+.field-val{font-size:14px;font-weight:600}
+.debt-card{background:linear-gradient(135deg,var(--primary),var(--primary-2));color:#fff;border-radius:16px;padding:18px;margin-bottom:16px}
+.debt-label{font-size:12px;opacity:.85;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.debt-val{font-size:28px;font-weight:800;margin-top:6px}
+.debt-sub{font-size:12.5px;opacity:.85;margin-top:4px}
+.section-title{font-size:14px;font-weight:700;margin-bottom:10px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);font-size:13.5px}
+th{color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.03em}
+tr:last-child td{border-bottom:0}
+.chip{display:inline-flex;align-items:center;border:1px solid;border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:700}
+.c-open{background:rgba(47,128,237,.14);border-color:rgba(47,128,237,.35);color:#175cd3}
+.c-teal{background:rgba(14,116,144,.14);border-color:rgba(14,116,144,.32);color:#0f766e}
+.c-paid{background:rgba(18,183,106,.14);border-color:rgba(18,183,106,.38);color:#067647}
+.c-pending{background:rgba(52,64,84,.08);border-color:rgba(52,64,84,.18);color:#344054}
+[data-theme="dark"] .c-open{color:#84caff}
+[data-theme="dark"] .c-teal{color:#99f6e4}
+[data-theme="dark"] .c-paid{color:#6ce9a6}
+[data-theme="dark"] .c-pending{color:#d0d5dd}
+.gap16{margin-bottom:16px}
+</style>
+</helmet>
+<div class="app" data-theme="{{theme}}">
+  <div class="sidebar">
+    <div class="sidebar-header"><div class="logo-mark">R</div><div class="logo-word">Recalcatti</div></div>
+    <div class="nav">
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>Dashboard</div>
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/></svg>Trabajos</div>
+      <div class="nav-item active"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><circle cx="17.5" cy="9" r="2.4"/><path d="M15.5 20a4.2 4.2 0 0 1 6.8-3.3"/></svg>Clientes</div>
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2Z"/><path d="M9 8h6M9 12h6"/></svg>Facturas y cobros</div>
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 8V6a3 3 0 0 1 6 0v2"/><rect x="4" y="8" width="16" height="12" rx="2"/></svg>Compras</div>
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 3v3M16 3v3"/></svg>Cuentas a pagar</div>
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2.5"/><circle cx="12" cy="12" r="2.6"/></svg>Caja</div>
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v9l7.5 4.3A9 9 0 1 0 12 3Z"/></svg>Inversores</div>
+      <div class="nav-section">Administración</div>
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 4 6v6c0 4.6 3.4 7.6 8 9 4.6-1.4 8-4.4 8-9V6Z"/></svg>Usuarios</div>
+      <div class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h13M17 7l-3-3M17 7l-3 3"/><path d="M20 17H7M7 17l3 3M7 17l3-3"/></svg>Tipos de cambio</div>
+    </div>
+    <div class="user-chip"><div class="avatar">PJ</div><div><div style="font-size:13px;font-weight:700">Patricio</div><div style="font-size:11.5px;color:var(--muted)">ADMIN</div></div></div>
+  </div>
+
+  <div class="main">
+    <div class="crumb">Clientes / <b>La Postrera</b></div>
+    <h1>La Postrera</h1>
+
+    <div class="layout">
+      <div>
+        <div class="debt-card">
+          <div class="debt-label">Deuda actual</div>
+          <div class="debt-val">$ 700.000</div>
+          <div class="debt-sub">≈ USD 648 · 1 factura abierta</div>
+        </div>
+        <div class="card">
+          <div class="section-title">Contacto</div>
+          <div class="field"><div class="field-label">CUIT</div><div class="field-val">30-71234567-9</div></div>
+          <div class="field"><div class="field-label">Contacto</div><div class="field-val">Rodrigo Paz</div></div>
+          <div class="field"><div class="field-label">Teléfono</div><div class="field-val">+54 9 11 5555-1234</div></div>
+          <div class="field"><div class="field-label">Email</div><div class="field-val">rodrigo@lapostrera.com.ar</div></div>
+          <div class="field"><div class="field-label">Dirección</div><div class="field-val">Ruta 8 km 142, Pergamino, Bs. As.</div></div>
+          <div class="field" style="margin-bottom:0"><div class="field-label">Notas</div><div class="field-val" style="font-weight:500;color:var(--muted)">Prefiere facturación quincenal.</div></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card gap16">
+          <div class="section-title">Trabajos</div>
+          <table>
+            <thead><tr><th>Fecha</th><th>Ubicación</th><th>Ha</th><th>Tipo</th><th>Estado</th></tr></thead>
+            <tbody>
+              <tr><td>25/03</td><td>El Retiro</td><td>120</td><td>Fumigación</td><td><span class="chip c-paid">Cobrado</span></td></tr>
+              <tr><td>10/03</td><td>El Retiro</td><td>60</td><td>Pulverizado</td><td><span class="chip c-pending">Pendiente</span></td></tr>
+              <tr><td>15/02</td><td>Potrero Sur</td><td>90</td><td>Siembra</td><td><span class="chip c-paid">Cobrado</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card gap16">
+          <div class="section-title">Facturas</div>
+          <table>
+            <thead><tr><th>Fecha</th><th>Monto</th><th>Saldo</th><th>Estado</th></tr></thead>
+            <tbody>
+              <tr><td>15/03</td><td>$ 1.500.000 <span style="color:var(--muted);font-weight:500">(USD 1.389)</span></td><td>$ 700.000</td><td><span class="chip c-open">Abierta</span></td></tr>
+              <tr><td>20/02</td><td>$ 980.000 <span style="color:var(--muted);font-weight:500">(USD 907)</span></td><td>$ 0</td><td><span class="chip c-paid">Cobrada</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="section-title">Pagos</div>
+          <table>
+            <thead><tr><th>Fecha</th><th>Monto</th><th>Factura</th></tr></thead>
+            <tbody>
+              <tr><td>25/03</td><td>$ 300.000</td><td>Factura 15/03</td></tr>
+              <tr><td>05/03</td><td>$ 500.000</td><td>Factura 15/03</td></tr>
+              <tr><td>25/02</td><td>$ 980.000</td><td>Factura 20/02</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":false,"section":"Tema"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.dark ? 'dark' : 'light' };
+  }
+}
+</script>
+</body>
+</html>

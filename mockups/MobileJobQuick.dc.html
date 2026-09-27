@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+:root{
+  --bg:#F5F0E8;--card:#FDFAF5;--surface:#FDFAF5;--text:#2a2a2a;--muted:#6b6a5e;--line:#D9D2C5;
+  --primary:#2E5E2E;--primary-2:#1C3A1C;--hover-bg:#EAE3D6;
+}
+[data-theme="dark"]{
+  --bg:#0f1a0f;--card:#162016;--surface:#131a13;--text:#f0ebe0;--muted:#8fa07f;--line:#253525;
+  --primary:#6dc96d;--primary-2:#55b055;--hover-bg:#1e2e1e;
+}
+*{box-sizing:border-box}
+.phone{font-family:"Manrope","Avenir Next","Segoe UI",sans-serif;background:var(--bg);color:var(--text);
+  width:390px;min-height:844px;position:relative;padding:18px 16px 100px;}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:22px}
+h1{margin:0;font-size:19px;font-weight:800;letter-spacing:-0.01em}
+.close-btn{width:44px;height:44px;border-radius:10px;background:var(--card);border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;color:var(--muted)}
+.field{margin-bottom:16px}
+.field-label{font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:6px;display:block}
+input,select,textarea{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+  background:var(--card);color:var(--text);font-size:15px;font-family:inherit}
+textarea{min-height:80px;resize:none}
+.link-add{font-size:13px;color:var(--primary-2);font-weight:700;margin-top:8px;display:inline-block}
+[data-theme="dark"] .link-add{color:var(--primary)}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.save-bar{position:absolute;left:0;right:0;bottom:0;padding:16px;background:var(--bg);border-top:1px solid var(--line)}
+.btn{width:100%;border:0;border-radius:14px;background:linear-gradient(120deg,var(--primary),var(--primary-2));
+  color:#fff;padding:15px;font-weight:800;font-size:15px}
+</style>
+</helmet>
+<div class="phone" data-theme="{{theme}}">
+  <div class="topbar">
+    <h1>Nuevo trabajo</h1>
+    <div class="close-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </div>
+  </div>
+
+  <div class="field">
+    <label class="field-label">Fecha</label>
+    <input type="text" value="25/03/2026"/>
+  </div>
+
+  <div class="field">
+    <label class="field-label">Cliente</label>
+    <select><option>La Postrera</option></select>
+    <span class="link-add">+ Nuevo cliente</span>
+  </div>
+
+  <div class="field">
+    <label class="field-label">Ubicación</label>
+    <input type="text" placeholder="Ej: potrero norte, El Retiro"/>
+  </div>
+
+  <div class="two-col">
+    <div class="field">
+      <label class="field-label">Tipo de trabajo</label>
+      <select><option>Fumigación</option></select>
+    </div>
+    <div class="field">
+      <label class="field-label">Hectáreas</label>
+      <input type="text" placeholder="0"/>
+    </div>
+  </div>
+
+  <div class="field">
+    <label class="field-label">Notas (opcional)</label>
+    <textarea placeholder="Detalles del trabajo..."></textarea>
+  </div>
+
+  <div class="save-bar">
+    <button class="btn">Guardar trabajo</button>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"dark":{"editor":"boolean","default":false,"section":"Tema"}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.dark ? 'dark' : 'light' };
+  }
+}
+</script>
+</body>
+</html>

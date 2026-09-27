@@ -1,0 +1,21 @@
+backend/.venv/
+backend/__pycache__/
+backend/*/__pycache__/
+backend/*/*/__pycache__/
+backend/db.sqlite3
+backend/.env
+backend/staticfiles/
+*.pyc
+.DS_Store
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+frontend/next-env.d.ts
+backend/db.sqlite3.bak-*
+backend/*.sqlite3
+frontend/tsconfig.tsbuildinfo
+__pycache__/
+.env
+# Datos reales (nombres, montos, chat): nunca al repo. Ver core/private_data.py.
+privado/
+backend/privado/
