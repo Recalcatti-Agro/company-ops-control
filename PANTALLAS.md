@@ -14,7 +14,7 @@ sobre lo que el rol le permite en [API.md](API.md)). **AA** = solo `ADMIN`.
 | `/` | A+I | ambas | Redirige a `/dashboard` (desktop) o `/home` (mobile) |
 | `/dashboard` | A+I | desktop | Panel financiero completo: caja, capital, pipeline, vencimientos, alertas, cap table, evolución mensual. Para `INVESTOR` es de solo lectura — mismos datos, sin botones de acción |
 | `/home` | A+I | mobile | Síntesis + accesos rápidos a carga de trabajo/gasto |
-| `/jobs` | A+I | desktop | Listado y ABM de trabajos, filtros, agrupado por mes. `INVESTOR` edita/borra solo los que cargó él (`created_by`) |
+| `/jobs` | A+I | desktop | Listado y ABM de trabajos, agrupado por mes. Filtros: búsqueda de texto (cliente, ubicación, producto, tipo, notas), cliente, estado (incl. "No cobrados"), tipo, producto/semilla, ubicación y rango de fechas (un trabajo de varios días entra si se cruza con el rango), con "Limpiar filtros"; el encabezado muestra "N de M trabajos · X ha" de lo filtrado. `INVESTOR` edita/borra solo los que cargó él (`created_by`) |
 | `/jobs/[id]` | A+I | ambas | Detalle: facturado/cobrado/pendiente, reparto aplicado, timeline |
 | `/jobs/quick` | A+I | mobile | Carga rápida de trabajo, con alta de cliente inline |
 | `/invoices` | A+I lectura · AA acciones | desktop | Facturas y cobros: facturar trabajos, registrar cobro, previsualizar y aplicar reparto. `INVESTOR` ve todo pero sin botones de facturar/cobrar/repartir |

@@ -572,12 +572,12 @@ class Command(BaseCommand):
         """Migra las compras, salvo las de pago único.
 
         v1 permitía ligar un gasto directo a una compra, sin cuota en el medio
-        (compras chicas pagadas en el acto: Starlink, anemómetro, etc.). En v2 una
+        (compras chicas pagadas en el acto). En v2 una
         compra solo tiene sentido si hay algo que seguir (cuotas o pago diferido),
         así que esas compras no se migran: queda solo el gasto, con la categoría
         de la compra en sus notas (ver _migrate_expenses).
 
-        Al revés, una compra sin cuotas todavía impaga (ej. Drone T100, pago
+        Al revés, una compra sin cuotas todavía impaga (ej. un equipo con pago
         diferido) se migra con 1 cuota, así aparece en Cuentas a pagar."""
         rows = self._fetchall(
             "select id, created_date, concept, category, total_amount, total_currency, "

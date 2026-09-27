@@ -71,12 +71,33 @@ class Command(BaseCommand):
             if models.Purchase.objects.filter(notes__contains=mark).exists():
                 self.stdout.write(f"#{item['n']}: ya cargado, se saltea")
                 continue
-            self._post("/api/purchases/", {
+            total = d(item["total"])
+            fx = self._fx(item["date"]) if item["currency"] == "ARS" else None
+            purchase = self._post("/api/purchases/", {
                 "date": item["date"], "concept": item["concept"], "category": item["category"],
-                "total_amount": item["total"], "currency": item["currency"], "total_amount_usd": item["total"],
+                "total_amount": str(total), "currency": item["currency"],
+                "fx_ars_usd": str(fx) if fx else None,
+                "total_amount_usd": str((total / fx).quantize(Decimal("0.01")) if fx else total),
                 "installment_count": item["installments"], "first_due_date": item["first_due"],
                 "notes": f"{item['note']} {mark}",
             })
+            bills = list(models.Bill.objects.filter(purchase_id=purchase["id"]).order_by("installment_number"))
+            # Cuotas desparejas: la API las reparte en partes iguales; se ajustan acá
+            # (antes de cualquier pago, así que no hay reparto que recalcular).
+            for bill, amount in zip(bills, item.get("installment_amounts", [])):
+                bill.amount_original = d(amount)
+                bill.estimated_amount_usd = (d(amount) / fx).quantize(Decimal("0.01")) if fx else d(amount)
+                bill.save(update_fields=["amount_original", "estimated_amount_usd"])
+            for paid in item.get("paid", []):
+                bill = bills[paid["installment"] - 1]
+                pay_fx = self._fx(paid["date"]) if item["currency"] == "ARS" else Decimal("1")
+                self._post("/api/expenses/", {
+                    "date": paid["date"], "concept": bill.concept, "amount_original": str(bill.amount_original),
+                    "currency": item["currency"], "fx_ars_usd": str(pay_fx),
+                    "amount_usd": str((bill.amount_original / pay_fx).quantize(Decimal("0.01"))),
+                    "paid_by": paid["paid_by"], "account": self.ars.id, "bill": bill.id,
+                    "notes": f"Cuota pagada según el chat. {mark}",
+                })
             self.stdout.write(f"#{item['n']}: cargado")
 
     def _post(self, url, data):
@@ -95,7 +116,14 @@ class Command(BaseCommand):
         if given:
             return d(given)
         if date in self.bcra_rates:
-            return d(self.bcra_rates[date])
+            rate = d(self.bcra_rates[date])
+            # Se guarda como lo haría fx_service al bajarlo del BCRA: si el último TC
+            # guardado hasta esa fecha ya es este, es el publicado ese día; si no,
+            # es de esta fecha y falta en la tabla.
+            last = models.ExchangeRate.objects.filter(date__lte=date).order_by("-date").first()
+            if last is None or last.ars_per_usd != rate:
+                models.ExchangeRate.objects.get_or_create(date=date, defaults={"ars_per_usd": rate, "source": "bcra"})
+            return rate
         rate, _ = fx_service.get_ars_per_usd(models.ExchangeRate._meta.get_field("date").to_python(date))
         return d(rate)
 

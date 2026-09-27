@@ -1,7 +1,8 @@
 # Recalcatti v2 — Propuesta de rediseño
 
 > **Documentos:** [EJECUTAR.md](EJECUTAR.md) (levantar en local) ·
-> [PASE_A_PRODUCCION.md](PASE_A_PRODUCCION.md) · [REVISION_UX.md](REVISION_UX.md).
+> [PASE_A_PRODUCCION.md](PASE_A_PRODUCCION.md) · [REVISION_UX.md](REVISION_UX.md) ·
+> [DATOS_SENSIBLES.md](DATOS_SENSIBLES.md).
 > El estado del proyecto y el historial de la migración de datos están en
 > `privado/docs/` (fuera del repo, porque tienen datos reales).
 

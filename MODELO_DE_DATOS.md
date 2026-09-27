@@ -79,7 +79,7 @@ Igual que hoy, salvo `client` como FK.
 | `date`, `end_date` | |
 | `client` | FK a `Client` |
 | `location` | texto libre — campo/predio donde se hizo, para responder "dónde se hicieron" trabajos por cliente. Si con el tiempo se repiten siempre los mismos 2-3 lugares por cliente, se puede convertir en catálogo (`ClientLocation`) más adelante; por ahora texto libre alcanza |
-| `hectares`, `work_type`, `notes` | |
+| `hectares`, `work_type`, `product`, `notes` | `work_type`: lista fija (Pulverización / Siembra / Fertilización / Otro); `product`: semilla o producto aplicado |
 | `status` | `PENDING` / `DONE` / `INVOICED` / `COLLECTED` / `CANCELLED` — derivado, igual que hoy |
 | `created_by` | FK a `User`, se completa solo al crear — sirve para permisos (ver [API.md](API.md)) |
 
