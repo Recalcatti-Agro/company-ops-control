@@ -2,12 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { api, errorMessage } from "@/lib/api";
+import { fmtDate, fmtMoney } from "@/lib/format";
 
 type Option = { id: number; name: string };
+type BillOption = {
+  id: number; concept: string; due_date: string; amount_original: string; currency: string;
+  status: string; paid_amount_original: string;
+};
 export type ExpenseRecord = {
   id: number; date: string; concept: string; amount_original: string; currency: string;
   fx_ars_usd: string; amount_usd: string; paid_by: string; account: number | null;
-  investor: number | null; created_by: number | null; notes?: string;
+  investor: number | null; created_by: number | null; notes?: string; bill?: number | null;
 };
 
 function usdFrom(amount: string, currency: string, fx: string) {
@@ -37,7 +42,9 @@ export function ExpenseForm({
     paid_by: expense?.paid_by || "CASH",
     account: expense?.account ? String(expense.account) : accounts[0] ? String(accounts[0].id) : "",
     investor: expense?.investor ? String(expense.investor) : "",
+    bill: expense?.bill ? String(expense.bill) : "",
   }));
+  const [bills, setBills] = useState<BillOption[]>([]);
   const [dateTouched, setDateTouched] = useState(!expense);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -47,6 +54,28 @@ export function ExpenseForm({
     if (!dateTouched || !form.date) return;
     api.get(`/fx/ars-usd/?date=${form.date}`).then((r) => setForm((f) => ({ ...f, fx_ars_usd: r.ars_per_usd }))).catch(() => {});
   }, [form.date, dateTouched]);
+
+  // Cuotas/cuentas a pagar abiertas (más la ya vinculada, si se edita un gasto que la saldó).
+  useEffect(() => {
+    api.get("/bills/")
+      .then((rows: BillOption[]) => setBills(rows.filter((b) => (b.status !== "PAID" && b.status !== "CANCELLED") || b.id === expense?.bill)))
+      .catch(() => {});
+  }, [expense?.bill]);
+
+  function pickBill(id: string) {
+    const bill = bills.find((b) => String(b.id) === id);
+    setForm((f) => {
+      if (!bill) return { ...f, bill: "" };
+      const remaining = Number(bill.amount_original) - Number(bill.paid_amount_original);
+      return {
+        ...f,
+        bill: id,
+        concept: f.concept || bill.concept,
+        currency: f.amount_original ? f.currency : bill.currency,
+        amount_original: f.amount_original || (remaining > 0 ? remaining.toFixed(2) : ""),
+      };
+    });
+  }
 
   const amountUsd = usdFrom(form.amount_original, form.currency, form.fx_ars_usd);
 
@@ -64,6 +93,7 @@ export function ExpenseForm({
       paid_by: form.paid_by,
       account: form.paid_by === "CASH" ? Number(form.account) : null,
       investor: form.paid_by === "INVESTOR" ? Number(form.investor) : null,
+      bill: form.bill ? Number(form.bill) : null,
     };
     try {
       if (expense) await api.patch(`/expenses/${expense.id}/`, payload);
@@ -81,6 +111,19 @@ export function ExpenseForm({
         <label className="field-label">Fecha</label>
         <input type="date" required value={form.date} onChange={(e) => { setDateTouched(true); setForm({ ...form, date: e.target.value }); }} />
       </div>
+      {bills.length > 0 && (
+        <div>
+          <label className="field-label">Paga una cuota / cuenta a pagar</label>
+          <select value={form.bill} onChange={(e) => pickBill(e.target.value)}>
+            <option value="">Ninguna</option>
+            {bills.map((b) => (
+              <option key={b.id} value={b.id}>
+                {fmtDate(b.due_date)} · {b.concept} · {fmtMoney(Number(b.amount_original) - Number(b.paid_amount_original), b.currency)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div>
         <label className="field-label">Concepto</label>
         <input required value={form.concept} onChange={(e) => setForm({ ...form, concept: e.target.value })} />
