@@ -141,3 +141,17 @@ class PurchaseInstallmentsTests(APITestCase):
     def test_usd_installments(self):
         bills = self._bills(total_amount="3000", currency="USD")
         self.assertEqual(bills, [(Decimal("1500"), "USD", Decimal("1500"))] * 2)
+
+    def test_editing_purchase_currency_updates_unpaid_installments(self):
+        res = self.client.post("/api/purchases/", {
+            "date": "2026-09-27", "concept": "Drone", "installment_count": 1,
+            "first_due_date": "2026-09-30", "total_amount": "42000", "currency": "USD",
+        }, format="json")
+        purchase_id = res.data["id"]
+        res = self.client.patch(f"/api/purchases/{purchase_id}/", {
+            "total_amount": "63000000", "currency": "ARS", "total_amount_usd": "42000",
+        }, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        bill = models.Bill.objects.get(purchase_id=purchase_id)
+        self.assertEqual((bill.amount_original, bill.currency, bill.estimated_amount_usd),
+                         (Decimal("63000000"), "ARS", Decimal("42000")))

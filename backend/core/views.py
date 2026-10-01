@@ -419,6 +419,7 @@ class PurchaseViewSet(viewsets.ModelViewSet):
                 if bill.paid_amount_usd <= Decimal("0.01"):
                     bill.due_date = due
                     bill.amount_original = amounts[i]
+                    bill.currency = purchase.currency
                     bill.estimated_amount_usd = amounts_usd[i]
                     bill.installment_total = target_count
                     bill.concept = f"{purchase.concept} · cuota {number}/{target_count}"
