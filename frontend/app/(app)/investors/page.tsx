@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { fmtARS, fmtDate, fmtPct, fmtUSD } from "@/lib/format";
+import { fmtPct, fmtUSD } from "@/lib/format";
 import Modal from "@/components/Modal";
 import ConfirmModal from "@/components/ConfirmModal";
 import RowActions from "@/components/RowActions";
@@ -11,14 +12,13 @@ import { IconPlus } from "@/components/icons";
 import { PageHeader, ProgressBar } from "@/components/ui";
 
 type CapRow = { investor_id: number; name: string; capital_usd: string; percentage: string };
-const KIND_LABEL: Record<string, string> = { CONTRIBUTION: "Aporte", RESCUE: "Rescate", JOB_DISTRIBUTION: "Reparto", EXPENSE_PAID: "Gasto pagado" };
 
 export default function InvestorsPage() {
   const { session } = useAuth();
+  const router = useRouter();
   const [rows, setRows] = useState<CapRow[]>([]);
   const [totalCapital, setTotalCapital] = useState("0");
   const [loading, setLoading] = useState(true);
-  const [detail, setDetail] = useState<{ id: number; name: string; events: any[] } | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<CapRow | null>(null);
@@ -30,11 +30,6 @@ export default function InvestorsPage() {
     api.get("/investors/cap-table/").then((r) => { setRows(r.rows); setTotalCapital(r.total_capital_usd); }).finally(() => setLoading(false));
   }
   useEffect(load, []);
-
-  async function openDetail(row: CapRow) {
-    const events = await api.get(`/investors/${row.investor_id}/capital-events/`);
-    setDetail({ id: row.investor_id, name: row.name, events });
-  }
 
   async function submitInvestor(e: React.FormEvent) {
     e.preventDefault();
@@ -71,7 +66,7 @@ export default function InvestorsPage() {
                 // Se puede ver el detalle propio (o el de cualquiera, si es admin).
                 const canSee = session?.role === "ADMIN" || session?.investorId === r.investor_id;
                 return (
-                <tr key={r.investor_id} className={canSee ? "row-link" : undefined} onClick={canSee ? () => openDetail(r) : undefined}>
+                <tr key={r.investor_id} className={canSee ? "row-link" : undefined} onClick={canSee ? () => router.push(`/investors/${r.investor_id}`) : undefined}>
                   <td style={{ fontWeight: 700 }}>{r.name}</td>
                   <td className="num">{fmtUSD(r.capital_usd)}</td>
                   <td>
@@ -95,30 +90,6 @@ export default function InvestorsPage() {
           </table>
           {rows.length === 0 && <div className="empty">Sin inversores activos</div>}
         </div>
-      )}
-
-      {detail && (
-        <Modal title={`Capital de ${detail.name}`} onClose={() => setDetail(null)}>
-          <table>
-            <thead><tr><th>Fecha</th><th>Tipo</th><th className="num">Monto</th></tr></thead>
-            <tbody>
-              {detail.events.map((ev: any) => (
-                <tr key={ev.id}>
-                  <td>{fmtDate(ev.date)}</td>
-                  <td>
-                    {KIND_LABEL[ev.kind]}
-                    {ev.concept && <div className="small">{ev.concept}</div>}
-                  </td>
-                  <td className="num">
-                    {ev.currency === "ARS" ? fmtARS(ev.amount_original) : fmtUSD(ev.amount_original)}
-                    {ev.currency === "ARS" && <span className="small"> · {fmtUSD(ev.amount_usd)}</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {detail.events.length === 0 && <div className="empty">Sin movimientos</div>}
-        </Modal>
       )}
 
       {showForm && (
