@@ -95,6 +95,20 @@ class EditDeleteGuardsTests(APITestCase):
         self.assertEqual(self.client.patch(f"/api/expenses/{expense.id}/", {"concept": "y"}, format="json").status_code, 403)
         self.assertEqual(self.client.delete(f"/api/expenses/{expense.id}/").status_code, 403)
 
+    def test_investor_capital_events_include_paid_expenses(self):
+        models.Expense.objects.create(
+            date=date(2026, 2, 1), concept="Starlink", amount_original="1000", currency="ARS",
+            fx_ars_usd="1000", amount_usd="1", paid_by="INVESTOR", investor=self.investor,
+        )
+        models.CapitalEvent.objects.create(
+            date=date(2026, 1, 1), investor=self.investor, kind="CONTRIBUTION", account=self.ars,
+            amount_original="5000", currency="ARS", fx_ars_usd="1000", amount_usd="5",
+        )
+        rows = self.client.get(f"/api/investors/{self.investor.id}/capital-events/").data
+        self.assertEqual([r["kind"] for r in rows], ["EXPENSE_PAID", "CONTRIBUTION"])
+        self.assertEqual(rows[0]["concept"], "Starlink")
+        self.assertEqual(sum(Decimal(r["amount_usd"]) for r in rows), self.investor.capital_usd())
+
     def test_job_detail_includes_payments_and_distribution(self):
         payment = self._payment(self._invoice())
         models.CapitalEvent.objects.create(

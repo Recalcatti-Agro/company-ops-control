@@ -96,8 +96,21 @@ class InvestorViewSet(viewsets.ModelViewSet):
     )
     def capital_events_view(self, request, pk=None):
         investor = self.get_object()
-        events = investor.capital_events.all()
-        return Response(serializers.CapitalEventSerializer(events, many=True).data)
+        rows = serializers.CapitalEventSerializer(investor.capital_events.all(), many=True).data
+        # Los gastos pagados de su bolsillo también suman capital (Investor.capital_usd),
+        # así que se listan acá para que el detalle cierre con el total.
+        for exp in investor.expenses_paid.all():
+            rows.append({
+                "id": f"expense-{exp.id}",
+                "date": exp.date.isoformat(),
+                "kind": "EXPENSE_PAID",
+                "concept": exp.concept,
+                "amount_original": str(exp.amount_original),
+                "currency": exp.currency,
+                "amount_usd": str(exp.amount_usd),
+            })
+        rows.sort(key=lambda r: r["date"], reverse=True)
+        return Response(rows)
 
 
 class ClientViewSet(viewsets.ModelViewSet):

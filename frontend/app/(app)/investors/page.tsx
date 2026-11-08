@@ -11,7 +11,7 @@ import { IconPlus } from "@/components/icons";
 import { PageHeader, ProgressBar } from "@/components/ui";
 
 type CapRow = { investor_id: number; name: string; capital_usd: string; percentage: string };
-const KIND_LABEL: Record<string, string> = { CONTRIBUTION: "Aporte", RESCUE: "Rescate", JOB_DISTRIBUTION: "Reparto" };
+const KIND_LABEL: Record<string, string> = { CONTRIBUTION: "Aporte", RESCUE: "Rescate", JOB_DISTRIBUTION: "Reparto", EXPENSE_PAID: "Gasto pagado" };
 
 export default function InvestorsPage() {
   const { session } = useAuth();
@@ -105,7 +105,10 @@ export default function InvestorsPage() {
               {detail.events.map((ev: any) => (
                 <tr key={ev.id}>
                   <td>{fmtDate(ev.date)}</td>
-                  <td>{KIND_LABEL[ev.kind]}</td>
+                  <td>
+                    {KIND_LABEL[ev.kind]}
+                    {ev.concept && <div className="small">{ev.concept}</div>}
+                  </td>
                   <td className="num">
                     {ev.currency === "ARS" ? fmtARS(ev.amount_original) : fmtUSD(ev.amount_original)}
                     {ev.currency === "ARS" && <span className="small"> · {fmtUSD(ev.amount_usd)}</span>}
